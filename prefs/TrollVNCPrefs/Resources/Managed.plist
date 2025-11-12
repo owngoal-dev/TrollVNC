@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Enabled</key>
+  <true/>
+  <key>DesktopName</key>
+  <string>TrollVNC</string>
+  <key>Port</key>
+  <integer>5901</integer>
+  <key>Scale</key>
+  <real>0.75</real>
+  <key>FrameRateSpec</key>
+  <string>30:60:120</string>
+  <key>DeferWindowSec</key>
+  <real>0.012</real>
+  <key>MaxInflight</key>
+  <integer>2</integer>
+  <key>TileSize</key>
+  <integer>32</integer>
+  <key>FullscreenThresholdPercent</key>
+  <integer>35</integer>
+  <key>MaxRects</key>
+  <integer>512</integer>
+  <key>HttpPort</key>
+  <integer>5801</integer>
+  <key>HttpDir</key>
+  <string>/usr/share/trollvnc/webclients</string>
+  <key>SslCertFile</key>
+  <string>/usr/share/trollvnc/ssl/host/cert.pem</string>
+  <key>SslKeyFile</key>
+  <string>/usr/share/trollvnc/ssl/host/key.pem</string>
+  <key>ClipboardEnabled</key>
+  <true/>
+  <key>ViewOnly</key>
+  <false/>
+  <key>FullPassword</key>
+  <string>editpass</string>
+  <key>ViewOnlyPassword</key>
+  <string>viewpass</string>
+</dict>
+</plist>
