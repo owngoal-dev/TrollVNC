@@ -37,6 +37,7 @@ int SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions(CFStringRef bundleI
 @interface TVNCServiceCoordinator ()
 @property(nonatomic, strong) NSTimer *checkTimer;
 @property(nonatomic, strong) NSUserDefaults *userDefaults;
+@property(nonatomic) BOOL didSchedulePrebootLaunch;
 @end
 
 @implementation TVNCServiceCoordinator
@@ -79,7 +80,12 @@ int SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions(CFStringRef bundleI
 - (void)commonInit {
     _checkTimer = nil;
     _serviceRunning = NO;
+    _didSchedulePrebootLaunch = NO;
     _userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
+    [_userDefaults registerDefaults:@{
+        @"LaunchAtLogin" : @[ @"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine" ],
+        @"PrebootLaunchDelay" : @45
+    }];
 
     NSBundle *prefsBundle = [NSBundle bundleWithPath:[[NSBundle mainBundle] pathForResource:@"TrollVNCPrefs"
                                                                                      ofType:@"bundle"]];
@@ -97,6 +103,14 @@ int SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions(CFStringRef bundleI
 
 - (void)registerServiceMonitor {
     [_checkTimer invalidate];
+    if (!self.didSchedulePrebootLaunch) {
+        self.didSchedulePrebootLaunch = YES;
+        NSTimeInterval delay = [[_userDefaults objectForKey:@"PrebootLaunchDelay"] doubleValue];
+        if (delay < 0) delay = 0;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self checkPrebootDependencies];
+        });
+    }
     [self checkTimerFired:nil];
     _checkTimer = [NSTimer scheduledTimerWithTimeInterval:3.0
                                                    target:self
@@ -118,7 +132,6 @@ int SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions(CFStringRef bundleI
 - (void)ensureServiceRunning {
     BOOL running = [self _isServiceRunning];
     if (!running) {
-        [self checkPrebootDependencies];
         [self spawnService];
     }
     if (_serviceRunning != running) {
@@ -201,6 +214,7 @@ int SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions(CFStringRef bundleI
                 continue;
             }
             appId = candidateAppId;
+            break;
         }
     }
 
