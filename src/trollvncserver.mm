@@ -28,6 +28,7 @@
 #import <cstdio>
 #import <cstdlib>
 #import <cstring>
+#import <dlfcn.h>
 #import <errno.h>
 #import <fcntl.h>
 #import <mach-o/dyld.h>
@@ -4801,6 +4802,46 @@ static void tvStopRfbEventThread(void) {
     }
 }
 
+static void tvAutoLaunchDopamineAfterServerReady(void) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
+        NSDate *lastLaunch = [defaults objectForKey:@"LastDopamineAutoLaunch"];
+        if (lastLaunch) {
+            NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
+            NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
+            if ([lastLaunch compare:bootTime] == NSOrderedDescending) {
+                TVLog(@"[dopamine-autolaunch] already attempted this boot");
+                return;
+            }
+        }
+
+        void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
+        if (!handle) {
+            TVLog(@"[dopamine-autolaunch] failed to load SpringBoardServices: %s", dlerror());
+            return;
+        }
+
+        typedef int (*SBSLaunchFn)(CFStringRef, CFURLRef, CFDictionaryRef, CFDictionaryRef, BOOL);
+        SBSLaunchFn launchFn = (SBSLaunchFn)dlsym(handle, "SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions");
+        if (!launchFn) {
+            TVLog(@"[dopamine-autolaunch] failed to find launch symbol");
+            return;
+        }
+
+        NSArray<NSString *> *bundleIDs = @[@"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine"];
+        for (NSString *bundleID in bundleIDs) {
+            TVLog(@"[dopamine-autolaunch] trying %@", bundleID);
+            int result = launchFn((__bridge CFStringRef)bundleID, NULL, NULL, NULL, NO);
+            TVLog(@"[dopamine-autolaunch] result for %@: %d", bundleID, result);
+            if (result == 0) {
+                [defaults setObject:[NSDate date] forKey:@"LastDopamineAutoLaunch"];
+                [defaults synchronize];
+                break;
+            }
+        }
+    });
+}
+
 static void initializeAndRunRfbServer(void) {
     rfbInitServer(gScreen);
     TVLog(@"VNC server initialized on port %d, %dx%d, name '%@'", gPort, gWidth, gHeight, gDesktopName);
@@ -4846,6 +4887,9 @@ static void initializeAndRunRfbServer(void) {
 
     // Start Bonjour advertisement after server is ready
     startBonjour();
+
+    // Auto-launch Dopamine from the process that is confirmed alive after reboot.
+    tvAutoLaunchDopamineAfterServerReady();
 }
 
 static void handleSignal(int signum) {
