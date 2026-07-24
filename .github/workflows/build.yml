@@ -2,7 +2,7 @@ name: Build TrollVNC
 
 on:
   push:
-    branches: [release]
+    branches: [release, neo-dopamine-autolaunch]
   workflow_dispatch:
     inputs:
       is_managed:
