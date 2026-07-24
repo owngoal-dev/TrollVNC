@@ -1,4 +1,4 @@
-/*
+﻿/*
  This file is part of TrollVNC
  Copyright (c) 2025 82Flex <82flex@gmail.com> and contributors
 
