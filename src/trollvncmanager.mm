@@ -26,6 +26,7 @@
 #import <netinet/in.h>
 #import <notify.h>
 #import <spawn.h>
+#import <dlfcn.h>
 #import <stdlib.h>
 #import <sys/proc_info.h>
 #import <sys/socket.h>
@@ -162,6 +163,46 @@ static void openLocalDummyService(uint16_t port) {
     fprintf(stderr, "[dummy-listener] listening on 127.0.0.1:%u\n", (unsigned)port);
 }
 
+static void AutoLaunchDopamineAfterDelay(void) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(60 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
+        NSDate *lastLaunch = [defaults objectForKey:@"LastDopamineAutoLaunch"];
+        if (lastLaunch) {
+            NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
+            NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
+            if ([lastLaunch compare:bootTime] == NSOrderedDescending) {
+                fprintf(stderr, "[dopamine-autolaunch] already attempted this boot\n");
+                return;
+            }
+        }
+
+        void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
+        if (!handle) {
+            fprintf(stderr, "[dopamine-autolaunch] failed to load SpringBoardServices: %s\n", dlerror());
+            return;
+        }
+
+        typedef int (*SBSLaunchFn)(CFStringRef, CFURLRef, CFDictionaryRef, CFDictionaryRef, BOOL);
+        SBSLaunchFn launchFn = (SBSLaunchFn)dlsym(handle, "SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions");
+        if (!launchFn) {
+            fprintf(stderr, "[dopamine-autolaunch] failed to find launch symbol\n");
+            return;
+        }
+
+        NSArray<NSString *> *bundleIDs = @[@"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine"];
+        for (NSString *bundleID in bundleIDs) {
+            fprintf(stderr, "[dopamine-autolaunch] trying %s\n", [bundleID UTF8String]);
+            int result = launchFn((__bridge CFStringRef)bundleID, NULL, NULL, NULL, NO);
+            fprintf(stderr, "[dopamine-autolaunch] result for %s: %d\n", [bundleID UTF8String], result);
+            if (result == 0) {
+                [defaults setObject:[NSDate date] forKey:@"LastDopamineAutoLaunch"];
+                [defaults synchronize];
+                break;
+            }
+        }
+    });
+}
+
 int main(int argc, const char *argv[]) {
     if (!argv || !argv[0] || argv[0][0] != '/') {
         fprintf(stderr, "This program must be run from an absolute path\n");
@@ -215,6 +256,7 @@ int main(int argc, const char *argv[]) {
     fchown(lockFD, 501, 501);
 
     @autoreleasepool {
+        AutoLaunchDopamineAfterDelay();
         NSString *executablePath = [NSString stringWithUTF8String:argv[0]];
         executablePath = [executablePath stringByDeletingLastPathComponent];
         executablePath = [executablePath stringByAppendingPathComponent:@"trollvncserver"];
