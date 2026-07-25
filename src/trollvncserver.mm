@@ -4802,7 +4802,71 @@ static void tvStopRfbEventThread(void) {
     }
 }
 
+static BOOL tvProcessNamedIsRunning(NSArray<NSString *> *names) {
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0 || size == 0) return NO;
+
+    struct kinfo_proc *processes = (struct kinfo_proc *)malloc(size);
+    if (!processes) return NO;
+
+    BOOL found = NO;
+    if (sysctl(mib, 4, processes, &size, NULL, 0) == 0) {
+        int count = (int)(size / sizeof(struct kinfo_proc));
+        for (int i = 0; i < count; i++) {
+            NSString *processName = [NSString stringWithUTF8String:processes[i].kp_proc.p_comm ?: ""];
+            if ([names containsObject:processName]) {
+                TVLog(@"[dopamine-autolaunch] jailbreak process detected: %@", processName);
+                found = YES;
+                break;
+            }
+        }
+    }
+
+    free(processes);
+    return found;
+}
+
+static BOOL tvRoothideJailbrokenViaJbclient(void) {
+    typedef bool (*JBRoothideJailbrokenFn)(void);
+
+    JBRoothideJailbrokenFn fn = (JBRoothideJailbrokenFn)dlsym(RTLD_DEFAULT, "jbclient_roothide_jailbroken");
+    if (!fn) {
+        NSArray<NSString *> *candidates = @[
+            @"/var/jb/basebin/libjailbreak.dylib",
+            @"/var/jb/usr/lib/libjailbreak.dylib",
+            @"/usr/lib/libjailbreak.dylib",
+            @"/basebin/libjailbreak.dylib"
+        ];
+        for (NSString *path in candidates) {
+            void *handle = dlopen([path fileSystemRepresentation], RTLD_LAZY);
+            if (handle) {
+                fn = (JBRoothideJailbrokenFn)dlsym(handle, "jbclient_roothide_jailbroken");
+                if (fn) {
+                    TVLog(@"[dopamine-autolaunch] loaded jbclient from %@", path);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (fn) {
+        BOOL jailbroken = fn();
+        TVLog(@"[dopamine-autolaunch] jbclient_roothide_jailbroken=%@", jailbroken ? @"YES" : @"NO");
+        return jailbroken;
+    }
+
+    TVLog(@"[dopamine-autolaunch] jbclient_roothide_jailbroken unavailable");
+    return NO;
+}
+
 static BOOL tvIsLikelyJailbroken(void) {
+    if (tvRoothideJailbrokenViaJbclient()) return YES;
+
+    if (tvProcessNamedIsRunning(@[@"jailbreakd", @"jbserver", @"idownloadd", @"roothide", @"jbctl"])) {
+        return YES;
+    }
+
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString *> *paths = @[
         @"/var/jb",
