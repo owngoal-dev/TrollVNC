@@ -71,6 +71,18 @@
 			<key>placeholder</key>
 			<string>5</string>
 		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>defaults</key>
+			<string>com.82flex.trollvnc</string>
+			<key>key</key>
+			<string>DopamineAutoLaunchSkipWhenJailbroken</string>
+			<key>label</key>
+			<string>Skip When Jailbroken</string>
+			<key>default</key>
+			<true/>
+		</dict>
 
 		<!-- Desktop Name -->
 		<dict>

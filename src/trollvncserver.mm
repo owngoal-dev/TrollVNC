@@ -4802,11 +4802,38 @@ static void tvStopRfbEventThread(void) {
     }
 }
 
+static BOOL tvIsLikelyJailbroken(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *paths = @[
+        @"/var/jb",
+        @"/var/jb/usr/bin/jbctl",
+        @"/var/jb/usr/bin/launchctl",
+        @"/var/jb/Library/MobileSubstrate",
+        @"/var/jb/usr/lib/TweakInject",
+        @"/var/containers/Bundle/tweaksupport",
+        @"/var/mobile/Library/roothide",
+        @"/var/mobile/Library/Preferences/roothide.plist"
+    ];
+    for (NSString *path in paths) {
+        if ([fm fileExistsAtPath:path]) {
+            TVLog(@"[dopamine-autolaunch] jailbreak marker detected: %@", path);
+            return YES;
+        }
+    }
+    return NO;
+}
+
 static void tvAutoLaunchDopamineAfterServerReady(void) {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
     BOOL enabled = [defaults objectForKey:@"DopamineAutoLaunchEnabled"] ? [defaults boolForKey:@"DopamineAutoLaunchEnabled"] : YES;
     if (!enabled) {
         TVLog(@"[dopamine-autolaunch] disabled in preferences");
+        return;
+    }
+
+    BOOL skipWhenJailbroken = [defaults objectForKey:@"DopamineAutoLaunchSkipWhenJailbroken"] ? [defaults boolForKey:@"DopamineAutoLaunchSkipWhenJailbroken"] : YES;
+    if (skipWhenJailbroken && tvIsLikelyJailbroken()) {
+        TVLog(@"[dopamine-autolaunch] jailbreak already detected, skipping Dopamine launch");
         return;
     }
 
