@@ -40,6 +40,7 @@
 #import <string>
 #import <sys/socket.h>
 #import <sys/sysctl.h>
+#import <sys/codesign.h>
 #import <unistd.h>
 #import <vector>
 
@@ -4827,6 +4828,17 @@ static BOOL tvProcessNamedIsRunning(NSArray<NSString *> *names) {
     return found;
 }
 
+static BOOL tvRootlessJailbrokenViaPlatformBinary(void) {
+    uint32_t csFlags = 0;
+    if (csops(getpid(), CS_OPS_STATUS, &csFlags, sizeof(csFlags)) == 0) {
+        BOOL jailbroken = (csFlags & CS_PLATFORM_BINARY) != 0;
+        TVLog(@"[dopamine-autolaunch] CS_PLATFORM_BINARY=%@", jailbroken ? @"YES" : @"NO");
+        return jailbroken;
+    }
+    TVLog(@"[dopamine-autolaunch] csops status check failed");
+    return NO;
+}
+
 static BOOL tvRoothideJailbrokenViaJbclient(void) {
     typedef bool (*JBRoothideJailbrokenFn)(void);
 
@@ -4862,6 +4874,7 @@ static BOOL tvRoothideJailbrokenViaJbclient(void) {
 
 static BOOL tvIsLikelyJailbroken(void) {
     if (tvRoothideJailbrokenViaJbclient()) return YES;
+    if (tvRootlessJailbrokenViaPlatformBinary()) return YES;
 
     if (tvProcessNamedIsRunning(@[@"jailbreakd", @"jbserver", @"idownloadd", @"roothide", @"jbctl"])) {
         return YES;
