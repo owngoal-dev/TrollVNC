@@ -29,6 +29,49 @@
 			<true/>
 		</dict>
 
+
+		<!-- Dopamine Auto Jailbreak -->
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Dopamine Auto Jailbreak</string>
+			<key>footerText</key>
+			<string>Automatically opens Dopamine after Mew Remote's VNC server starts, then Dopamine handles its own auto-jailbreak flow. Restart Mew Remote/reboot to apply delay changes.</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>defaults</key>
+			<string>com.82flex.trollvnc</string>
+			<key>key</key>
+			<string>DopamineAutoLaunchEnabled</string>
+			<key>label</key>
+			<string>Auto Jailbreak Dopamine</string>
+			<key>default</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>defaults</key>
+			<string>com.82flex.trollvnc</string>
+			<key>key</key>
+			<string>DopamineAutoLaunchDelay</string>
+			<key>label</key>
+			<string>Launch Delay (sec)</string>
+			<key>default</key>
+			<integer>5</integer>
+			<key>decimal</key>
+			<true/>
+			<key>isNumeric</key>
+			<true/>
+			<key>noAutoCorrect</key>
+			<true/>
+			<key>placeholder</key>
+			<string>5</string>
+		</dict>
+
 		<!-- Desktop Name -->
 		<dict>
 			<key>cell</key>

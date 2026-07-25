@@ -4803,8 +4803,18 @@ static void tvStopRfbEventThread(void) {
 }
 
 static void tvAutoLaunchDopamineAfterServerReady(void) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
+    BOOL enabled = [defaults objectForKey:@"DopamineAutoLaunchEnabled"] ? [defaults boolForKey:@"DopamineAutoLaunchEnabled"] : YES;
+    if (!enabled) {
+        TVLog(@"[dopamine-autolaunch] disabled in preferences");
+        return;
+    }
+
+    NSInteger delay = [defaults integerForKey:@"DopamineAutoLaunchDelay"];
+    if (delay <= 0) delay = 5;
+    if (delay > 300) delay = 300;
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         NSDate *lastLaunch = [defaults objectForKey:@"LastDopamineAutoLaunch"];
         if (lastLaunch) {
             NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
