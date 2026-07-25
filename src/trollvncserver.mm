@@ -4810,6 +4810,17 @@ static void tvStopRfbEventThread(void) {
     }
 }
 
+static BOOL tvDopamineMarkedJailbrokenThisBoot(NSUserDefaults *defaults) {
+    NSDate *lastJailbrokenAt = [defaults objectForKey:@"DopamineLastJailbrokenAt"];
+    if (!lastJailbrokenAt) return NO;
+
+    NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
+    NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
+    BOOL markedThisBoot = [lastJailbrokenAt compare:bootTime] == NSOrderedDescending;
+    TVLog(@"[dopamine-autolaunch] Dopamine marker this boot=%@", markedThisBoot ? @"YES" : @"NO");
+    return markedThisBoot;
+}
+
 static BOOL tvProcessNamedIsRunning(NSArray<NSString *> *names) {
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
     size_t size = 0;
@@ -4916,7 +4927,7 @@ static void tvAutoLaunchDopamineAfterServerReady(void) {
     }
 
     BOOL skipWhenJailbroken = [defaults objectForKey:@"DopamineAutoLaunchSkipWhenJailbroken"] ? [defaults boolForKey:@"DopamineAutoLaunchSkipWhenJailbroken"] : YES;
-    if (skipWhenJailbroken && tvIsLikelyJailbroken()) {
+    if (skipWhenJailbroken && (tvDopamineMarkedJailbrokenThisBoot(defaults) || tvIsLikelyJailbroken())) {
         TVLog(@"[dopamine-autolaunch] jailbreak already detected, skipping Dopamine launch");
         return;
     }
