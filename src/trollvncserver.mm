@@ -4812,6 +4812,15 @@ static void tvStopRfbEventThread(void) {
 
 static BOOL tvDopamineMarkedJailbrokenThisBoot(NSUserDefaults *defaults) {
     NSDate *lastJailbrokenAt = [defaults objectForKey:@"DopamineLastJailbrokenAt"];
+
+    NSString *markerPath = @"/var/mobile/Library/Preferences/com.82flex.trollvnc.dopamine-marker.plist";
+    NSDictionary *marker = [NSDictionary dictionaryWithContentsOfFile:markerPath];
+    NSDate *fileMarkerDate = marker[@"DopamineLastJailbrokenAt"];
+    if (fileMarkerDate && (!lastJailbrokenAt || [fileMarkerDate compare:lastJailbrokenAt] == NSOrderedDescending)) {
+        lastJailbrokenAt = fileMarkerDate;
+        TVLog(@"[dopamine-autolaunch] read Dopamine marker file: %@", markerPath);
+    }
+
     if (!lastJailbrokenAt) return NO;
 
     NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
