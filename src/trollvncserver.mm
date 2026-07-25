@@ -40,8 +40,15 @@
 #import <string>
 #import <sys/socket.h>
 #import <sys/sysctl.h>
-#import <sys/codesign.h>
 #import <unistd.h>
+
+#ifndef CS_OPS_STATUS
+#define CS_OPS_STATUS 0
+#endif
+#ifndef CS_PLATFORM_BINARY
+#define CS_PLATFORM_BINARY 0x04000000
+#endif
+extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
 #import <vector>
 
 #import "BulletinManager.h"
