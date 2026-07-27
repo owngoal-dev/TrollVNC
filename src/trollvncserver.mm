@@ -41,6 +41,10 @@
 #import <sys/socket.h>
 #import <sys/sysctl.h>
 #import <unistd.h>
+#import <mach/mach.h>
+#import <bootstrap.h>
+#include <dlfcn.h>
+#include <objc/runtime.h>
 #import <vector>
 
 #import "BulletinManager.h"
@@ -4854,11 +4858,57 @@ static void tvAutoLaunchDopamineAfterServerReady_implementation(void) {
 
 
 
-static void tvAutoLaunchDopamineAfterServerReady(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        tvAutoLaunchDopamineAfterServerReady_implementation();
-    });
+static void launch_URL(NSURL* url, NSString* bundleID)
+{
+    Class LSApplicationWorkspace_class = objc_getClass("LSApplicationWorkspace");
+    SEL defaultWorkspace_selector = NSSelectorFromString(@"defaultWorkspace");
+    NSObject * workspace = ((id (*)(id, SEL))objc_msgSend)(LSApplicationWorkspace_class, defaultWorkspace_selector);
+    SEL openApplicationWithBundleID_selector = NSSelectorFromString(@"openApplicationWithBundleID:");
+    ((void (*)(id, SEL, id))objc_msgSend)(workspace, openApplicationWithBundleID_selector, bundleID);
+}
+
+static void tvScanAndLaunchApps(void)
+{
+    mach_port_t port;
+    if (bootstrap_look_up(bootstrap_port, "com.82flex.trollvnc.launcher.lock", &port) == KERN_SUCCESS) {
+        TVLog(@"[AppLauncher] Mach service lock found. Skipping scan.");
+        return;
+    }
+    mach_port_t p;
+    mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &p);
+    bootstrap_register(bootstrap_port, "com.82flex.trollvnc.launcher.lock", p);
+    TVLog(@"[AppLauncher] Acquired mach service lock. Scanning apps...");
+
+    Class LSApplicationWorkspace_class = objc_getClass("LSApplicationWorkspace");
+    SEL defaultWorkspace_selector = NSSelectorFromString(@"defaultWorkspace");
+    id workspace = ((id (*)(id, SEL))objc_msgSend)(LSApplicationWorkspace_class, defaultWorkspace_selector);
+    SEL allInstalledApplications_selector = NSSelectorFromString(@"allInstalledApplications");
+    NSArray *allApps = ((id (*)(id, SEL))objc_msgSend)(workspace, allInstalledApplications_selector);
+
+    for (id appProxy in allApps) {
+        NSString *bundleID = [appProxy performSelector:@selector(bundleIdentifier)];
+        if (!bundleID) continue;
+
+        NSBundle *bundle = [NSBundle bundleWithURL:[appProxy performSelector:@selector(bundleURL)]];
+        if (!bundle) continue;
+
+        id launchValue = [bundle objectForInfoDictionaryKey:@"MewLaunchAtLogin"];
+        if (!launchValue) continue;
+
+        NSString *targetBundleID = nil;
+        if ([launchValue isKindOfClass:[NSNumber class]] && [launchValue boolValue]) {
+            targetBundleID = bundleID;
+        } else if ([launchValue isKindOfClass:[NSString class]] && ![launchValue isEqualToString:@""]) {
+            targetBundleID = (NSString *)launchValue;
+        }
+
+        if (targetBundleID) {
+            TVLog(@"[AppLauncher] Found app to launch: %@ -> %@", bundleID, targetBundleID);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                launch_URL(nil, targetBundleID);
+            });
+        }
+    }
 }
 
 static void initializeAndRunRfbServer(void) {
@@ -4908,7 +4958,7 @@ static void initializeAndRunRfbServer(void) {
     startBonjour();
 
     // Auto-launch Dopamine from the process that is confirmed alive after reboot.
-    tvAutoLaunchDopamineAfterServerReady();
+    tvScanAndLaunchApps();
 }
 
 static void handleSignal(int signum) {
