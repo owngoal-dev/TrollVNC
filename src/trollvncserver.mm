@@ -41,10 +41,6 @@
 #import <sys/socket.h>
 #import <sys/sysctl.h>
 #import <unistd.h>
-
-#include <dlfcn.h>
-#include <objc/runtime.h>
-
 #import <vector>
 
 #import "BulletinManager.h"
@@ -4806,7 +4802,7 @@ static void tvStopRfbEventThread(void) {
     }
 }
 
-static void tvAutoLaunchDopamineAfterServerReady_implementation(void) {
+static void tvAutoLaunchDopamineAfterServerReady(void) {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
     BOOL enabled = [defaults objectForKey:@"DopamineAutoLaunchEnabled"] ? [defaults boolForKey:@"DopamineAutoLaunchEnabled"] : YES;
     if (!enabled) {
@@ -4856,69 +4852,6 @@ static void tvAutoLaunchDopamineAfterServerReady_implementation(void) {
     });
 }
 
-
-
-static void launch_URL(NSURL* url, NSString* bundleID)
-{
-    Class LSApplicationWorkspace_class = objc_getClass("LSApplicationWorkspace");
-    SEL defaultWorkspace_selector = NSSelectorFromString(@"defaultWorkspace");
-    NSObject * workspace = ((id (*)(id, SEL))objc_msgSend)(LSApplicationWorkspace_class, defaultWorkspace_selector);
-    SEL openApplicationWithBundleID_selector = NSSelectorFromString(@"openApplicationWithBundleID:");
-    ((void (*)(id, SEL, id))objc_msgSend)(workspace, openApplicationWithBundleID_selector, bundleID);
-}
-
-static void tvScanAndLaunchApps(void)
-{
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
-    NSDate *lastScan = [defaults objectForKey:@"LastTrollStoreAppLauncherScan"];
-    if (lastScan) {
-        NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
-        NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
-        if ([lastScan compare:bootTime] == NSOrderedDescending) {
-            TVLog(@"[AppLauncher] already scanned/launched this boot");
-            return;
-        }
-    }
-
-    // Write the once-per-boot marker BEFORE scheduling any launch. If the server is
-    // killed/restarted during or after jailbreak, the next process must skip.
-    [defaults setObject:[NSDate date] forKey:@"LastTrollStoreAppLauncherScan"];
-    [defaults synchronize];
-
-    TVLog(@"[AppLauncher] Scanning apps...");
-
-    Class LSApplicationWorkspace_class = objc_getClass("LSApplicationWorkspace");
-    SEL defaultWorkspace_selector = NSSelectorFromString(@"defaultWorkspace");
-    id workspace = ((id (*)(id, SEL))objc_msgSend)(LSApplicationWorkspace_class, defaultWorkspace_selector);
-    SEL allInstalledApplications_selector = NSSelectorFromString(@"allInstalledApplications");
-    NSArray *allApps = ((id (*)(id, SEL))objc_msgSend)(workspace, allInstalledApplications_selector);
-
-    for (id appProxy in allApps) {
-        NSString *bundleID = [appProxy performSelector:@selector(bundleIdentifier)];
-        if (!bundleID) continue;
-
-        NSBundle *bundle = [NSBundle bundleWithURL:[appProxy performSelector:@selector(bundleURL)]];
-        if (!bundle) continue;
-
-        id launchValue = [bundle objectForInfoDictionaryKey:@"MewLaunchAtLogin"];
-        if (!launchValue) continue;
-
-        NSString *targetBundleID = nil;
-        if ([launchValue isKindOfClass:[NSNumber class]] && [launchValue boolValue]) {
-            targetBundleID = bundleID;
-        } else if ([launchValue isKindOfClass:[NSString class]] && ![launchValue isEqualToString:@""]) {
-            targetBundleID = (NSString *)launchValue;
-        }
-
-        if (targetBundleID) {
-            TVLog(@"[AppLauncher] Found app to launch: %@ -> %@", bundleID, targetBundleID);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                launch_URL(nil, targetBundleID);
-            });
-        }
-    }
-}
-
 static void initializeAndRunRfbServer(void) {
     rfbInitServer(gScreen);
     TVLog(@"VNC server initialized on port %d, %dx%d, name '%@'", gPort, gWidth, gHeight, gDesktopName);
@@ -4966,7 +4899,7 @@ static void initializeAndRunRfbServer(void) {
     startBonjour();
 
     // Auto-launch Dopamine from the process that is confirmed alive after reboot.
-    tvScanAndLaunchApps();
+    tvAutoLaunchDopamineAfterServerReady();
 }
 
 static void handleSignal(int signum) {
