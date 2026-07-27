@@ -4857,61 +4857,7 @@ static void tvAutoLaunchDopamineAfterServerReady_implementation(void) {
 static void tvAutoLaunchDopamineAfterServerReady(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSString *markerPath = @"/var/mobile/Library/Preferences/com.82flex.trollvnc.launcher.pid.marker";
-        
-        NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
-        NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
-
-        NSDictionary *marker = [NSDictionary dictionaryWithContentsOfFile:markerPath];
-        NSDate *lastLaunchAttemptTime = marker[@"lastLaunchAttemptTime"];
-        pid_t lastLauncherPID = [marker[@"launcherPID"] intValue];
-
-        if (lastLaunchAttemptTime && [lastLaunchAttemptTime compare:bootTime] == NSOrderedDescending) {
-            if (lastLauncherPID > 0 && kill(lastLauncherPID, 0) == 0) {
-                 TVLog(@"[dopamine-autolaunch] launch already attempted this boot by PID %d, which is still alive. Skipping.", lastLauncherPID);
-                 return;
-            }
-             TVLog(@"[dopamine-autolaunch] launch already attempted this boot, but PID %d is dead. Taking over.", lastLauncherPID);
-        }
-
-        pid_t currentPID = getpid();
-        TVLog(@"[dopamine-autolaunch] first launch attempt for this boot (or taking over). My PID: %d. Writing marker.", currentPID);
-        NSDictionary *newMarker = @{ @"lastLaunchAttemptTime" : [NSDate date], @"launcherPID" : @(currentPID) };
-        [newMarker writeToFile:markerPath atomically:YES];
-
-        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
-        BOOL enabled = [defaults objectForKey:@"DopamineAutoLaunchEnabled"] ? [defaults boolForKey:@"DopamineAutoLaunchEnabled"] : YES;
-        if (!enabled) {
-            TVLog(@"[dopamine-autolaunch] disabled in preferences. Skipping launch.");
-            return;
-        }
-
-        NSInteger delay = [defaults integerForKey:@"DopamineAutoLaunchDelay"];
-        if (delay <= 0) delay = 5;
-        if (delay > 300) delay = 300;
-
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
-            if (!handle) {
-                TVLog(@"[dopamine-autolaunch] failed to load SpringBoardServices: %s", dlerror());
-                return;
-            }
-
-            typedef int (*SBSLaunchFn)(CFStringRef, CFURLRef, CFDictionaryRef, CFDictionaryRef, BOOL);
-            SBSLaunchFn launchFn = (SBSLaunchFn)dlsym(handle, "SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions");
-            if (!launchFn) {
-                TVLog(@"[dopamine-autolaunch] failed to find launch symbol");
-                return;
-            }
-
-            NSArray<NSString *> *bundleIDs = @[@"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine"];
-            for (NSString *bundleID in bundleIDs) {
-                TVLog(@"[dopamine-autolaunch] trying %@", bundleID);
-                int result = launchFn((__bridge CFStringRef)bundleID, NULL, NULL, NULL, NO);
-                TVLog(@"[dopamine-autolaunch] result for %@: %d", bundleID, result);
-                if (result == 0) break;
-            }
-        });
+        tvAutoLaunchDopamineAfterServerReady_implementation();
     });
 }
 
