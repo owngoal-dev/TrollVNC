@@ -4810,21 +4810,26 @@ static void tvAutoLaunchDopamineAfterServerReady(void) {
         return;
     }
 
+    NSDate *lastLaunch = [defaults objectForKey:@"LastDopamineAutoLaunch"];
+    if (lastLaunch) {
+        NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
+        NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
+        if ([lastLaunch compare:bootTime] == NSOrderedDescending) {
+            TVLog(@"[dopamine-autolaunch] already attempted this boot");
+            return;
+        }
+    }
+
+    // Mark the attempt before scheduling/launching. trollvncserver can be killed
+    // during jailbreak; a restarted process must not schedule another launch.
+    [defaults setObject:[NSDate date] forKey:@"LastDopamineAutoLaunch"];
+    [defaults synchronize];
+
     NSInteger delay = [defaults integerForKey:@"DopamineAutoLaunchDelay"];
     if (delay <= 0) delay = 5;
     if (delay > 300) delay = 300;
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NSDate *lastLaunch = [defaults objectForKey:@"LastDopamineAutoLaunch"];
-        if (lastLaunch) {
-            NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
-            NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
-            if ([lastLaunch compare:bootTime] == NSOrderedDescending) {
-                TVLog(@"[dopamine-autolaunch] already attempted this boot");
-                return;
-            }
-        }
-
         void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
         if (!handle) {
             TVLog(@"[dopamine-autolaunch] failed to load SpringBoardServices: %s", dlerror());
@@ -4844,8 +4849,6 @@ static void tvAutoLaunchDopamineAfterServerReady(void) {
             int result = launchFn((__bridge CFStringRef)bundleID, NULL, NULL, NULL, NO);
             TVLog(@"[dopamine-autolaunch] result for %@: %d", bundleID, result);
             if (result == 0) {
-                [defaults setObject:[NSDate date] forKey:@"LastDopamineAutoLaunch"];
-                [defaults synchronize];
                 break;
             }
         }
