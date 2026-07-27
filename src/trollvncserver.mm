@@ -4802,11 +4802,74 @@ static void tvStopRfbEventThread(void) {
     }
 }
 
+
+static BOOL tvPathExists(NSString *path) {
+    return [[NSFileManager defaultManager] fileExistsAtPath:path];
+}
+
+static BOOL tvProcessNameIsRunning(NSArray<NSString *> *names) {
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0 || size == 0) {
+        return NO;
+    }
+
+    struct kinfo_proc *processes = (struct kinfo_proc *)malloc(size);
+    if (!processes) {
+        return NO;
+    }
+
+    BOOL found = NO;
+    if (sysctl(mib, 4, processes, &size, NULL, 0) == 0) {
+        int count = (int)(size / sizeof(struct kinfo_proc));
+        for (int i = 0; i < count && !found; i++) {
+            NSString *procName = [NSString stringWithUTF8String:processes[i].kp_proc.p_comm ?: ""];
+            for (NSString *name in names) {
+                if ([procName isEqualToString:name] || [procName containsString:name]) {
+                    found = YES;
+                    break;
+                }
+            }
+        }
+    }
+
+    free(processes);
+    return found;
+}
+
+static BOOL tvLooksAlreadyJailbroken(void) {
+    NSArray<NSString *> *markerPaths = @[
+        @"/var/jb",
+        @"/var/jb/basebin/jailbreakd",
+        @"/var/mobile/Library/roothide",
+        @"/var/containers/Bundle/tweaksupport",
+        @"/var/mobile/Library/Preferences/roothide.plist"
+    ];
+    for (NSString *path in markerPaths) {
+        if (tvPathExists(path)) {
+            TVLog(@"[dopamine-autolaunch] jailbreak marker exists: %@", path);
+            return YES;
+        }
+    }
+
+    if (tvProcessNameIsRunning(@[@"jailbreakd", @"jbserver", @"idownloadd"])) {
+        TVLog(@"[dopamine-autolaunch] jailbreak process detected");
+        return YES;
+    }
+
+    return NO;
+}
+
 static void tvAutoLaunchDopamineAfterServerReady(void) {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
     BOOL enabled = [defaults objectForKey:@"DopamineAutoLaunchEnabled"] ? [defaults boolForKey:@"DopamineAutoLaunchEnabled"] : YES;
     if (!enabled) {
         TVLog(@"[dopamine-autolaunch] disabled in preferences");
+        return;
+    }
+
+    if (tvLooksAlreadyJailbroken()) {
+        TVLog(@"[dopamine-autolaunch] already jailbroken, skipping Dopamine launch");
         return;
     }
 
