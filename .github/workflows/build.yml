@@ -79,12 +79,10 @@ jobs:
   build:
     runs-on: macos-14
 
-    continue-on-error: ${{ matrix.scheme == 'roothide' }}
-
     strategy:
       fail-fast: false
       matrix:
-        scheme: ["default", "rootless", "roothide", "bootstrap"]
+        scheme: ["default", "rootless", "bootstrap"]
 
     steps:
       - name: Checkout repository
