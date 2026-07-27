@@ -41,8 +41,6 @@
 #import <sys/socket.h>
 #import <sys/sysctl.h>
 #import <unistd.h>
-#import <bootstrap.h>
-#import <mach/mach.h>
 #import <vector>
 
 #import "BulletinManager.h"
@@ -4857,59 +4855,9 @@ static void tvAutoLaunchDopamineAfterServerReady_implementation(void) {
 
 
 static void tvAutoLaunchDopamineAfterServerReady(void) {
-    mach_port_t port;
-    kern_return_t kr = bootstrap_look_up(bootstrap_port, "com.82flex.trollvnc.launcher.lock", &port);
-    if (kr == KERN_SUCCESS) {
-        TVLog(@"[dopamine-autolaunch] another launcher instance appears to be running (mach service found). Skipping.");
-        return;
-    }
-
-    mach_port_t p;
-    if (mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &p) != KERN_SUCCESS) {
-         TVLog(@"[dopamine-autolaunch] mach_port_allocate failed. Cannot create lock.");
-        return;
-    }
-
-    if (bootstrap_register(bootstrap_port, "com.82flex.trollvnc.launcher.lock", p) != KERN_SUCCESS) {
-        TVLog(@"[dopamine-autolaunch] bootstrap_register failed. Another instance might have just started. Skipping.");
-        mach_port_deallocate(mach_task_self(), p);
-        return;
-    }
-
-    TVLog(@"[dopamine-autolaunch] acquired mach service lock. Proceeding with launch.");
-
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
-    BOOL enabled = [defaults objectForKey:@"DopamineAutoLaunchEnabled"] ? [defaults boolForKey:@"DopamineAutoLaunchEnabled"] : YES;
-    if (!enabled) {
-        TVLog(@"[dopamine-autolaunch] disabled in preferences. Skipping launch.");
-        return;
-    }
-
-    NSInteger delay = [defaults integerForKey:@"DopamineAutoLaunchDelay"];
-    if (delay <= 0) delay = 5;
-    if (delay > 300) delay = 300;
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
-        if (!handle) {
-            TVLog(@"[dopamine-autolaunch] failed to load SpringBoardServices: %s", dlerror());
-            return;
-        }
-
-        typedef int (*SBSLaunchFn)(CFStringRef, CFURLRef, CFDictionaryRef, CFDictionaryRef, BOOL);
-        SBSLaunchFn launchFn = (SBSLaunchFn)dlsym(handle, "SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions");
-        if (!launchFn) {
-            TVLog(@"[dopamine-autolaunch] failed to find launch symbol");
-            return;
-        }
-
-        NSArray<NSString *> *bundleIDs = @[@"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine"];
-        for (NSString *bundleID in bundleIDs) {
-            TVLog(@"[dopamine-autolaunch] trying %@", bundleID);
-            int result = launchFn((__bridge CFStringRef)bundleID, NULL, NULL, NULL, NO);
-            TVLog(@"[dopamine-autolaunch] result for %@: %d", bundleID, result);
-            if (result == 0) break;
-        }
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        tvAutoLaunchDopamineAfterServerReady_implementation();
     });
 }
 
