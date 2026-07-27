@@ -83,7 +83,7 @@ int SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions(CFStringRef bundleI
     _didSchedulePrebootLaunch = NO;
     _userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
     [_userDefaults registerDefaults:@{
-        @"LaunchAtLogin" : @[ @"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine" ],
+        @"LaunchAtLogin" : @NO,
         @"PrebootLaunchDelay" : @45
     }];
 
@@ -103,14 +103,6 @@ int SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions(CFStringRef bundleI
 
 - (void)registerServiceMonitor {
     [_checkTimer invalidate];
-    if (!self.didSchedulePrebootLaunch) {
-        self.didSchedulePrebootLaunch = YES;
-        NSTimeInterval delay = [[_userDefaults objectForKey:@"PrebootLaunchDelay"] doubleValue];
-        if (delay < 0) delay = 0;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self checkPrebootDependencies];
-        });
-    }
     [self checkTimerFired:nil];
     _checkTimer = [NSTimer scheduledTimerWithTimeInterval:3.0
                                                    target:self
