@@ -4900,30 +4900,17 @@ static BOOL tvRoothideJailbrokenViaJbclient(void) {
 }
 
 static BOOL tvIsLikelyJailbroken(void) {
-    if (tvRoothideJailbrokenViaJbclient()) return YES;
-    if (tvRootlessJailbrokenViaPlatformBinary()) return YES;
-
-    if (tvProcessNamedIsRunning(@[@"jailbreakd", @"jbserver", @"idownloadd", @"roothide", @"jbctl"])) {
+    if (tvProcessNamedIsRunning(@[@"jailbreakd"])) {
+        TVLog(@"[dopamine-autolaunch] found jailbreakd process");
         return YES;
     }
 
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSArray<NSString *> *paths = @[
-        @"/var/jb",
-        @"/var/jb/usr/bin/jbctl",
-        @"/var/jb/usr/bin/launchctl",
-        @"/var/jb/Library/MobileSubstrate",
-        @"/var/jb/usr/lib/TweakInject",
-        @"/var/containers/Bundle/tweaksupport",
-        @"/var/mobile/Library/roothide",
-        @"/var/mobile/Library/Preferences/roothide.plist"
-    ];
-    for (NSString *path in paths) {
-        if ([fm fileExistsAtPath:path]) {
-            TVLog(@"[dopamine-autolaunch] jailbreak marker detected: %@", path);
-            return YES;
-        }
+    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb/basebin/jailbreakd"]) {
+        TVLog(@"[dopamine-autolaunch] found /var/jb/basebin/jailbreakd");
+        return YES;
     }
+
+    TVLog(@"[dopamine-autolaunch] no simple jailbreak markers found");
     return NO;
 }
 
