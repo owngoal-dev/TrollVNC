@@ -41,10 +41,16 @@
 #import <sys/socket.h>
 #import <sys/sysctl.h>
 #import <unistd.h>
-#import <mach/mach.h>
-#import <bootstrap.h>
+
+
 #include <dlfcn.h>
-#include <objc/runtime.h>
+
+#include <mach/port.h>
+#include <mach/kern_return.h>
+
+extern kern_return_t bootstrap_look_up(mach_port_t bp, const char* service_name, mach_port_t *sp);
+extern kern_return_t bootstrap_register(mach_port_t bp, const char* service_name, mach_port_t sp);
+
 #import <vector>
 
 #import "BulletinManager.h"
