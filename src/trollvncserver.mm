@@ -4868,7 +4868,10 @@ static void tvAutoLaunchDopamineAfterServerReady(void) {
         return;
     }
 
-    if (tvLooksAlreadyJailbroken()) {
+    NSString *customBundleID = [[defaults stringForKey:@"AutoLaunchCustomBundleID"] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    BOOL hasCustomTarget = (customBundleID.length > 0);
+
+    if (!hasCustomTarget && tvLooksAlreadyJailbroken()) {
         TVLog(@"[dopamine-autolaunch] already jailbroken, skipping Dopamine launch");
         return;
     }
@@ -4906,7 +4909,7 @@ static void tvAutoLaunchDopamineAfterServerReady(void) {
             return;
         }
 
-        NSArray<NSString *> *bundleIDs = @[@"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine"];
+        NSArray<NSString *> *bundleIDs = hasCustomTarget ? @[customBundleID] : @[@"com.opa334.Dopamine-roothide", @"com.opa334.Dopamine"];
         for (NSString *bundleID in bundleIDs) {
             TVLog(@"[dopamine-autolaunch] trying %@", bundleID);
             int result = launchFn((__bridge CFStringRef)bundleID, NULL, NULL, NULL, NO);

@@ -72,6 +72,34 @@
 			<string>5</string>
 		</dict>
 
+		<!-- Hidden/Advanced Launch Target -->
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Advanced Launch Target</string>
+			<key>footerText</key>
+			<string>Hidden/advanced: leave empty for Dopamine roothide/rootless. Enter a bundle ID/package name to open that app once after MewRemote server starts. Example: com.opa334.Dopamine-roothide</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>defaults</key>
+			<string>com.82flex.trollvnc</string>
+			<key>key</key>
+			<string>AutoLaunchCustomBundleID</string>
+			<key>label</key>
+			<string>Custom Bundle ID</string>
+			<key>placeholder</key>
+			<string>empty = Dopamine</string>
+			<key>keyboard</key>
+			<string>alphabet</string>
+			<key>noAutoCorrect</key>
+			<true/>
+			<key>autocapitalization</key>
+			<string>none</string>
+		</dict>
+
 		<!-- Desktop Name -->
 		<dict>
 			<key>cell</key>

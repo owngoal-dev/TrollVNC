@@ -2,7 +2,7 @@ name: Build MewRemote
 
 on:
   push:
-    branches: [release, test-skip-jailbroken]
+    branches: [release]
   workflow_dispatch:
     inputs:
       is_managed:
