@@ -45,15 +45,6 @@
 
 #include <dlfcn.h>
 
-#include <mach/port.h>
-#include <mach/kern_return.h>
-#include <mach/message.h> // For bootstrap_port
-
-extern "C" {
-    extern mach_port_t bootstrap_port;
-    extern kern_return_t bootstrap_look_up(mach_port_t bp, const char* service_name, mach_port_t *sp);
-    extern kern_return_t bootstrap_register(mach_port_t bp, const char* service_name, mach_port_t sp);
-}
 
 #import <vector>
 
@@ -4895,15 +4886,6 @@ static void tvScanAndLaunchApps(void)
     [defaults setObject:[NSDate date] forKey:@"LastTrollStoreAppLauncherScan"];
     [defaults synchronize];
 
-    mach_port_t port;
-    if (bootstrap_look_up(bootstrap_port, "com.82flex.trollvnc.launcher.lock", &port) == KERN_SUCCESS) {
-        TVLog(@"[AppLauncher] Mach service lock found. Skipping scan.");
-        return;
-    }
-    mach_port_t p;
-    if (mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &p) == KERN_SUCCESS) {
-        bootstrap_register(bootstrap_port, "com.82flex.trollvnc.launcher.lock", p);
-    }
     TVLog(@"[AppLauncher] Scanning apps...");
 
     Class LSApplicationWorkspace_class = objc_getClass("LSApplicationWorkspace");
