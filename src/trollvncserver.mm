@@ -4879,15 +4879,32 @@ static void launch_URL(NSURL* url, NSString* bundleID)
 
 static void tvScanAndLaunchApps(void)
 {
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
+    NSDate *lastScan = [defaults objectForKey:@"LastTrollStoreAppLauncherScan"];
+    if (lastScan) {
+        NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
+        NSDate *bootTime = [NSDate dateWithTimeIntervalSinceNow:-uptime];
+        if ([lastScan compare:bootTime] == NSOrderedDescending) {
+            TVLog(@"[AppLauncher] already scanned/launched this boot");
+            return;
+        }
+    }
+
+    // Write the once-per-boot marker BEFORE scheduling any launch. If the server is
+    // killed/restarted during or after jailbreak, the next process must skip.
+    [defaults setObject:[NSDate date] forKey:@"LastTrollStoreAppLauncherScan"];
+    [defaults synchronize];
+
     mach_port_t port;
     if (bootstrap_look_up(bootstrap_port, "com.82flex.trollvnc.launcher.lock", &port) == KERN_SUCCESS) {
         TVLog(@"[AppLauncher] Mach service lock found. Skipping scan.");
         return;
     }
     mach_port_t p;
-    mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &p);
-    bootstrap_register(bootstrap_port, "com.82flex.trollvnc.launcher.lock", p);
-    TVLog(@"[AppLauncher] Acquired mach service lock. Scanning apps...");
+    if (mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &p) == KERN_SUCCESS) {
+        bootstrap_register(bootstrap_port, "com.82flex.trollvnc.launcher.lock", p);
+    }
+    TVLog(@"[AppLauncher] Scanning apps...");
 
     Class LSApplicationWorkspace_class = objc_getClass("LSApplicationWorkspace");
     SEL defaultWorkspace_selector = NSSelectorFromString(@"defaultWorkspace");
