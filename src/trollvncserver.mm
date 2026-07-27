@@ -4927,7 +4927,7 @@ static BOOL tvIsLikelyJailbroken(void) {
     return NO;
 }
 
-static void tvAutoLaunchDopamineAfterServerReady(void) {
+static void tvAutoLaunchDopamineAfterServerReady_implementation(void) {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.82flex.trollvnc"];
     BOOL enabled = [defaults objectForKey:@"DopamineAutoLaunchEnabled"] ? [defaults boolForKey:@"DopamineAutoLaunchEnabled"] : YES;
     if (!enabled) {
@@ -4980,6 +4980,15 @@ static void tvAutoLaunchDopamineAfterServerReady(void) {
                 break;
             }
         }
+    });
+}
+
+
+
+static void tvAutoLaunchDopamineAfterServerReady(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        tvAutoLaunchDopamineAfterServerReady_implementation();
     });
 }
 
