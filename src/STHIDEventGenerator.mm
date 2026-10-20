@@ -139,6 +139,7 @@ NS_INLINE void _DTXCalcLinearPinchStartEndPoints(CGRect bounds, CGFloat pixelsSc
     NSUInteger _activePointCount;
     CGSize _physicalScreenSize;
     NSMutableSet<NSNumber *> *_activeKeyCodes;
+    NSMutableSet<NSNumber *> *_shiftWrappedUsages;
     dispatch_queue_t _hidEventQueue;
     NSTimeInterval _keepAliveInterval;
     NSTimer *_keepAliveTimer;
@@ -178,6 +179,7 @@ NS_INLINE void _DTXCalcLinearPinchStartEndPoints(CGRect bounds, CGFloat pixelsSc
     for (NSUInteger i = 0; i < HIDMaxTouchCount; ++i)
         _activePoints[i].identifier = fingerIdentifiers[i];
     _activeKeyCodes = [[NSMutableSet alloc] init];
+    _shiftWrappedUsages = [[NSMutableSet alloc] init];
 
     // Default: keepAliveInterval disabled
     _keepAliveInterval = 0;
@@ -1186,13 +1188,32 @@ static inline uint32_t hidUsageCodeForCharacter(NSString *key) {
     return 0;
 }
 
+- (BOOL)_isShiftKeyDown {
+    uint64_t page = (uint64_t)kHIDPage_KeyboardOrKeypad << 32;
+    return [_activeKeyCodes containsObject:@(page | kHIDUsage_KeyboardLeftShift)] ||
+           [_activeKeyCodes containsObject:@(page | kHIDUsage_KeyboardRightShift)];
+}
+
 - (void)keyDown:(NSString *)character {
-    [self _sendIOHIDKeyboardEvent:kHIDPage_KeyboardOrKeypad usage:hidUsageCodeForCharacter(character) isKeyDown:true];
+    uint32_t usage = hidUsageCodeForCharacter(character);
+    // A character such as "A" or "@" maps to its unshifted key. Hold Shift for it, as keyPress: does,
+    // unless the client already holds Shift.
+    if (shouldWrapWithShiftKeyEventForCharacter(character) && ![self _isShiftKeyDown]) {
+        [self _sendIOHIDKeyboardEvent:kHIDPage_KeyboardOrKeypad usage:kHIDUsage_KeyboardLeftShift isKeyDown:true];
+        [_shiftWrappedUsages addObject:@(usage)];
+    }
+    [self _sendIOHIDKeyboardEvent:kHIDPage_KeyboardOrKeypad usage:usage isKeyDown:true];
     [self sendMarkerHIDEvent];
 }
 
 - (void)keyUp:(NSString *)character {
-    [self _sendIOHIDKeyboardEvent:kHIDPage_KeyboardOrKeypad usage:hidUsageCodeForCharacter(character) isKeyDown:false];
+    uint32_t usage = hidUsageCodeForCharacter(character);
+    [self _sendIOHIDKeyboardEvent:kHIDPage_KeyboardOrKeypad usage:usage isKeyDown:false];
+    if ([_shiftWrappedUsages containsObject:@(usage)]) {
+        [_shiftWrappedUsages removeObject:@(usage)];
+        if (_shiftWrappedUsages.count == 0)
+            [self _sendIOHIDKeyboardEvent:kHIDPage_KeyboardOrKeypad usage:kHIDUsage_KeyboardLeftShift isKeyDown:false];
+    }
     [self sendMarkerHIDEvent];
 }
 
@@ -1630,6 +1651,7 @@ static inline uint32_t hidUsageCodeForCharacter(NSString *key) {
         [self __sendIOHIDKeyboardEvent:page usage:usage isKeyDown:false];
     }
     [_activeKeyCodes removeAllObjects];
+    [_shiftWrappedUsages removeAllObjects];
 }
 
 - (void)hardwareLock {
