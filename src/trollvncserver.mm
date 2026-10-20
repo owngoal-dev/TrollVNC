@@ -32,12 +32,14 @@
 #import <fcntl.h>
 #import <mach-o/dyld.h>
 #import <netinet/in.h>
+#import <netinet/tcp.h>
 #import <pthread.h>
 #import <rfb/keysym.h>
 #import <rfb/rfb.h>
 #import <string>
 #import <sys/socket.h>
 #import <sys/sysctl.h>
+#import <time.h>
 #import <unistd.h>
 #import <vector>
 
@@ -61,9 +63,12 @@
 
 #pragma mark - Options
 
+int gOrientationFixQuad = 0; // 0=0°, 1=90°CW, 2=180°, 3=270°CW
+
 static BOOL gEnabled = YES;
 static int gPort = 5901;
-static int gTvCtlPort = 0; // port for control connections (0 = disabled)
+static int gTvCtlPort = 0;        // port for control connections (0 = disabled)
+static NSString *gBindHost = nil; // optional bind address from CLI/config
 static NSString *gDesktopName = @"TrollVNC";
 static BOOL gViewOnly = NO;
 static double gKeepAliveSec = 0.0; // 15..86400
@@ -75,12 +80,6 @@ static double gScale = 1.0; // 0 < scale <= 1.0, 1.0 = no scaling
 static int gFpsMin = 0;
 static int gFpsPref = 0;
 static int gFpsMax = 0;
-static double gDeferWindowSec = 0.015;      // Coalescing window; 0 disables deferral
-static int gMaxInflightUpdates = 2;         // Max concurrent client encodes; drop frames if >= this
-static int gTileSize = 32;                  // Tile size for dirty detection (pixels)
-static int gFullscreenThresholdPercent = 0; // If changed tiles exceed this %, update full screen
-static int gMaxRectsLimit = 256;            // Max rects before falling back to bbox/fullscreen
-static BOOL gAsyncSwapEnabled = NO;         // Enable non-blocking swap (may cause tearing)
 
 // Wheel scroll coalescing state (async, non-blocking)
 static double gWheelStepPx = 48.0;        // base pixels per wheel tick (lower = slower)
@@ -129,6 +128,54 @@ static int gRepeaterId = 12345679;
 // User notifications
 static BOOL gUserClientNotifsEnabled = YES;
 static BOOL gUserSingleNotifsEnabled = YES;
+
+// Blocked hosts (temporary blacklist)
+static NSMutableSet<NSString *> *gBlockedHosts = nil;
+
+typedef NS_ENUM(uint8_t, TVBindHostKind) {
+    kTVBindHostKindNone = 0,
+    kTVBindHostKindIPv4,
+    kTVBindHostKindIPv6,
+    kTVBindHostKindInvalid,
+};
+
+static TVBindHostKind tvClassifyBindHost(NSString *host, in_addr_t *outIPv4, struct in6_addr *outIPv6) {
+    if (outIPv4)
+        *outIPv4 = 0;
+    if (outIPv6)
+        memset(outIPv6, 0, sizeof(*outIPv6));
+
+    if (!host || host.length == 0)
+        return kTVBindHostKindNone;
+
+    const char *cstr = [host UTF8String];
+    if (!cstr || *cstr == '\0')
+        return kTVBindHostKindNone;
+
+    struct in_addr v4;
+    if (inet_pton(AF_INET, cstr, &v4) == 1) {
+        if (outIPv4)
+            *outIPv4 = v4.s_addr;
+        return kTVBindHostKindIPv4;
+    }
+
+    char addrBuf[INET6_ADDRSTRLEN + 1];
+    const char *pct = strchr(cstr, '%');
+    size_t copyLen = pct ? (size_t)(pct - cstr) : strlen(cstr);
+    if (copyLen >= sizeof(addrBuf))
+        copyLen = sizeof(addrBuf) - 1;
+    memcpy(addrBuf, cstr, copyLen);
+    addrBuf[copyLen] = '\0';
+
+    struct in6_addr v6;
+    if (inet_pton(AF_INET6, addrBuf, &v6) == 1) {
+        if (outIPv6)
+            *outIPv6 = v6;
+        return kTVBindHostKindIPv6;
+    }
+
+    return kTVBindHostKindInvalid;
+}
 
 NS_INLINE BOOL isRepeaterEnabled(void) {
     return gRepeaterMode > 0 && gRepeaterHost != NULL && gRepeaterHost[0] != '\0' && gRepeaterPort > 0;
@@ -247,6 +294,7 @@ static void printUsageAndExit(const char *prog) {
     fprintf(stderr, "Usage: %s [-p port] [-n name] [options]\n\n", prog);
 
     fprintf(stderr, "Basic:\n");
+    fprintf(stderr, "  -b host    Bind host address (IPv4/IPv6 literal, default to all)\n");
     fprintf(stderr, "  -p port    VNC TCP port (default: %d)\n", gPort);
     fprintf(stderr, "  -c port    Client management TCP port (0=off, default: 0)\n");
     fprintf(stderr, "  -n name    Desktop name (default: %s)\n", [gDesktopName UTF8String]);
@@ -255,16 +303,7 @@ static void printUsageAndExit(const char *prog) {
 
     fprintf(stderr, "Display/Perf:\n");
     fprintf(stderr, "  -s scale   Output scale 0<s<=1 (default: %.2f)\n", gScale);
-    fprintf(stderr, "  -F spec    Frame rate: fps | min-max | min:pref:max\n");
-    fprintf(stderr, "  -d sec     Defer window (0..0.5, default: %.3f)\n", gDeferWindowSec);
-    fprintf(stderr, "  -Q n       Max in-flight encodes (0=never drop, default: %d)\n\n", gMaxInflightUpdates);
-
-    fprintf(stderr, "Dirty detection:\n");
-    fprintf(stderr, "  -t size    Tile size (8..128, default: %d)\n", gTileSize);
-    fprintf(stderr, "  -P pct     Fullscreen fallback threshold (0..100; 0=disable dirty detection, default: %d)\n",
-            gFullscreenThresholdPercent);
-    fprintf(stderr, "  -R max     Max dirty rects before bbox (default: %d)\n", gMaxRectsLimit);
-    fprintf(stderr, "  -a         Non-blocking swap (may cause tearing)\n\n");
+    fprintf(stderr, "  -F spec    Frame rate: fps | min-max | min:pref:max\n\n");
 
     fprintf(stderr, "Scroll/Input:\n");
     fprintf(stderr, "  -W px      Wheel step in pixels (0=disable, default: %.0f)\n", gWheelStepPx);
@@ -401,6 +440,21 @@ static void parseDaemonOptions(void) {
         prefs = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.82flex.trollvnc"];
     }
 
+#if TARGET_IPHONE_SIMULATOR
+    if (!prefs) {
+        const char *sandboxPath = getenv("TROLLVNC_SANDBOX_PATH");
+        if (sandboxPath && sandboxPath[0] != '\0') {
+            NSString *sandbox = [NSString stringWithUTF8String:sandboxPath];
+            NSString *plistPath =
+                [sandbox stringByAppendingPathComponent:@"Library/Preferences/com.82flex.trollvnc.plist"];
+            prefs = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+            if (prefs) {
+                TVLog(@"-daemon: loaded simulator preferences from %@", plistPath);
+            }
+        }
+    }
+#endif
+
     if (!prefs) {
         TVLog(@"-daemon: no preferences found for domain com.82flex.trollvnc");
         return;
@@ -412,6 +466,17 @@ static void parseDaemonOptions(void) {
         gDesktopName = desktopName;
     } else if (desktopName) {
         TVLog(@"-daemon: DesktopName is empty; using default '%@'", gDesktopName);
+    }
+
+    NSString *bindHost = [prefs objectForKey:@"BindHost"];
+    if ([bindHost isKindOfClass:[NSString class]]) {
+        if (bindHost.length > 0) {
+            gBindHost = bindHost;
+            TVLog(@"-daemon: BindHost=%@", gBindHost);
+        } else {
+            gBindHost = nil;
+            TVLog(@"-daemon: BindHost empty; cleared to default (any)");
+        }
     }
 
     // Numbers
@@ -454,76 +519,6 @@ static void parseDaemonOptions(void) {
         if (v > 1.0)
             v = 1.0;
         gScale = v;
-    }
-
-    NSNumber *deferN = [prefs objectForKey:@"DeferWindowSec"];
-    if ([deferN isKindOfClass:[NSNumber class]]) {
-        double v = deferN.doubleValue;
-        if (v < 0.0) {
-            TVLog(@"-daemon: DeferWindowSec < 0; set to 0");
-            v = 0.0;
-        }
-        if (v > 0.5) {
-            TVLog(@"-daemon: DeferWindowSec > 0.5; clamped to 0.5");
-            v = 0.5;
-        }
-        gDeferWindowSec = v;
-    }
-
-    NSNumber *maxInflightN = [prefs objectForKey:@"MaxInflight"];
-    if ([maxInflightN isKindOfClass:[NSNumber class]]) {
-        int v = maxInflightN.intValue;
-        if (v < 0) {
-            TVLog(@"-daemon: MaxInflight < 0; set to 0");
-            v = 0;
-        }
-        if (v > 8) {
-            TVLog(@"-daemon: MaxInflight > 8; clamped to 8");
-            v = 8;
-        }
-        gMaxInflightUpdates = v;
-    }
-
-    NSNumber *tileSizeN = [prefs objectForKey:@"TileSize"];
-    if ([tileSizeN isKindOfClass:[NSNumber class]]) {
-        int v = tileSizeN.intValue;
-        if (v < 8) {
-            TVLog(@"-daemon: TileSize < 8; set to 8");
-            v = 8;
-        }
-        if (v > 128) {
-            TVLog(@"-daemon: TileSize > 128; clamped to 128");
-            v = 128;
-        }
-        gTileSize = v;
-    }
-
-    NSNumber *fullThreshN = [prefs objectForKey:@"FullscreenThresholdPercent"];
-    if ([fullThreshN isKindOfClass:[NSNumber class]]) {
-        int v = fullThreshN.intValue;
-        if (v < 0) {
-            TVLog(@"-daemon: FullscreenThresholdPercent < 0; set to 0");
-            v = 0;
-        }
-        if (v > 100) {
-            TVLog(@"-daemon: FullscreenThresholdPercent > 100; clamped to 100");
-            v = 100;
-        }
-        gFullscreenThresholdPercent = v;
-    }
-
-    NSNumber *maxRectsN = [prefs objectForKey:@"MaxRects"];
-    if ([maxRectsN isKindOfClass:[NSNumber class]]) {
-        int v = maxRectsN.intValue;
-        if (v < 1) {
-            TVLog(@"-daemon: MaxRects < 1; set to 1");
-            v = 1;
-        }
-        if (v > 4096) {
-            TVLog(@"-daemon: MaxRects > 4096; clamped to 4096");
-            v = 4096;
-        }
-        gMaxRectsLimit = v;
     }
 
     NSNumber *wheelPxN = [prefs objectForKey:@"WheelStepPx"];
@@ -573,15 +568,17 @@ static void parseDaemonOptions(void) {
     NSNumber *orientN = [prefs objectForKey:@"OrientationSync"];
     if ([orientN isKindOfClass:[NSNumber class]])
         gOrientationSyncEnabled = orientN.boolValue;
+    NSNumber *orientFixN = [prefs objectForKey:@"OrientationPadFix"];
+    if ([orientFixN isKindOfClass:[NSNumber class]]) {
+        int v = orientFixN.intValue;
+        gOrientationFixQuad = (v >= 0 && v <= 3) ? v : 0;
+    }
     NSNumber *naturalN = [prefs objectForKey:@"NaturalScroll"];
     if ([naturalN isKindOfClass:[NSNumber class]])
         gWheelNaturalDir = naturalN.boolValue;
     NSNumber *cursorN = [prefs objectForKey:@"ServerCursor"];
     if ([cursorN isKindOfClass:[NSNumber class]])
         gCursorEnabled = cursorN.boolValue;
-    NSNumber *asyncSwapN = [prefs objectForKey:@"AsyncSwap"];
-    if ([asyncSwapN isKindOfClass:[NSNumber class]])
-        gAsyncSwapEnabled = asyncSwapN.boolValue;
     NSNumber *keyLogN = [prefs objectForKey:@"KeyLogging"];
     if ([keyLogN isKindOfClass:[NSNumber class]])
         gKeyEventLogging = keyLogN.boolValue;
@@ -681,10 +678,6 @@ static void parseDaemonOptions(void) {
         if (![httpDir hasPrefix:@"/"]) {
             TVLog(@"-daemon: HttpDir must be absolute: %@ (ignored)", httpDir);
         } else {
-            if (gHttpDirOverride) {
-                free(gHttpDirOverride);
-                gHttpDirOverride = NULL;
-            }
             gHttpDirOverride = strdup(httpDir.fileSystemRepresentation);
         }
     }
@@ -693,10 +686,6 @@ static void parseDaemonOptions(void) {
         if (![sslCert hasPrefix:@"/"]) {
             TVLog(@"-daemon: SslCertFile must be absolute: %@ (ignored)", sslCert);
         } else {
-            if (gSslCertPath) {
-                free(gSslCertPath);
-                gSslCertPath = NULL;
-            }
             gSslCertPath = strdup(sslCert.fileSystemRepresentation);
         }
     }
@@ -705,10 +694,6 @@ static void parseDaemonOptions(void) {
         if (![sslKey hasPrefix:@"/"]) {
             TVLog(@"-daemon: SslKeyFile must be absolute: %@ (ignored)", sslKey);
         } else {
-            if (gSslKeyPath) {
-                free(gSslKeyPath);
-                gSslKeyPath = NULL;
-            }
             gSslKeyPath = strdup(sslKey.fileSystemRepresentation);
         }
     }
@@ -776,10 +761,6 @@ static void parseDaemonOptions(void) {
         // Backward-compat: accept separate ReverseHost/ReversePort if present
         NSString *revHost = [prefs objectForKey:@"ReverseHost"];
         if ([revHost isKindOfClass:[NSString class]] && revHost.length > 0) {
-            if (gRepeaterHost) {
-                free(gRepeaterHost);
-                gRepeaterHost = NULL;
-            }
             gRepeaterHost = strdup(revHost.UTF8String);
         }
         NSNumber *revPortN = [prefs objectForKey:@"ReversePort"];
@@ -826,22 +807,21 @@ static void parseDaemonOptions(void) {
     // Single-line summary using NSMutableString; include reverse-connection fields and new options
     NSMutableString *cfg = [NSMutableString stringWithFormat:@"-daemon: cfg "];
     [cfg appendFormat:@"name='%@' ", gDesktopName];
+    [cfg appendFormat:@"bindHost='%@' ", gBindHost];
     [cfg appendFormat:@"port=%d http=%d ", gPort, gHttpPort];
 
     // Reverse connection summary
     const char *revModeStr = isRepeaterEnabled() ? (gRepeaterMode == 2 ? "repeater" : "viewer") : "off";
-    NSString *revHostStr = gRepeaterHost ? [NSString stringWithUTF8String:gRepeaterHost] : @"(null)";
+    NSString *revHostStr = gRepeaterHost ? [NSString stringWithUTF8String:gRepeaterHost] : nil;
     [cfg appendFormat:@"reverse=%s host=%@ port=%d id=%d ", revModeStr, revHostStr, gRepeaterPort, gRepeaterId];
 
     // Core feature flags
     [cfg appendFormat:@"viewOnly=%@ clip=%@ keepAlive=%.0fs ", gViewOnly ? @"YES" : @"NO",
                       gClipboardEnabled ? @"YES" : @"NO", gKeepAliveSec];
-    [cfg appendFormat:@"scale=%.2f fps=%d:%d:%d defer=%.3f ", gScale, gFpsMin, gFpsPref, gFpsMax, gDeferWindowSec];
-    [cfg appendFormat:@"inflight=%d tile=%d full%%=%d rects=%d ", gMaxInflightUpdates, gTileSize,
-                      gFullscreenThresholdPercent, gMaxRectsLimit];
-    [cfg appendFormat:@"async=%@ cursor=%@ orient=%@ keylog=%@ ", gAsyncSwapEnabled ? @"YES" : @"NO",
+    [cfg appendFormat:@"scale=%.2f fps=%d:%d:%d ", gScale, gFpsMin, gFpsPref, gFpsMax];
+    [cfg appendFormat:@"cursor=%@ orient=%@ orientFix=%d keylog=%@ ",
                       gCursorEnabled ? @"YES" : @"NO", gOrientationSyncEnabled ? @"YES" : @"NO",
-                      gKeyEventLogging ? @"YES" : @"NO"];
+                      gOrientationFixQuad, gKeyEventLogging ? @"YES" : @"NO"];
 
     // Wheel / input tuning
     [cfg appendFormat:@"wheel=%.1f natural=%@ mod=%s ", gWheelStepPx, gWheelNaturalDir ? @"YES" : @"NO",
@@ -853,9 +833,9 @@ static void parseDaemonOptions(void) {
 
     // Auth and paths
     [cfg appendFormat:@"auth(full=%@,view=%@,8char) ", hasFullPwd ? @"on" : @"off", hasViewPwd ? @"on" : @"off"];
-    NSString *dirStr = gHttpDirOverride ? [NSString stringWithUTF8String:gHttpDirOverride] : @"(null)";
-    NSString *certStr = gSslCertPath ? [NSString stringWithUTF8String:gSslCertPath] : @"(null)";
-    NSString *keyStr = gSslKeyPath ? [NSString stringWithUTF8String:gSslKeyPath] : @"(null)";
+    NSString *dirStr = gHttpDirOverride ? [NSString stringWithUTF8String:gHttpDirOverride] : nil;
+    NSString *certStr = gSslCertPath ? [NSString stringWithUTF8String:gSslCertPath] : nil;
+    NSString *keyStr = gSslKeyPath ? [NSString stringWithUTF8String:gSslKeyPath] : nil;
     [cfg appendFormat:@"dir=%@ cert=%@ key=%@", dirStr, certStr, keyStr];
 
     TVLog(@"%@", cfg);
@@ -1048,10 +1028,19 @@ static void parseCLI(int argc, const char *argv[]) {
 #pragma clang diagnostic pop
 
     int opt;
-    const char *optstr = "p:n:vA:c:C:s:F:d:Q:t:P:R:aW:w:NM:KU:O:I:i:H:D:e:k:B:T:Vh";
+    const char *optstr = "p:b:n:vA:c:C:s:F:W:w:NM:KU:O:o:I:i:H:D:e:k:B:T:Vh";
     optind = 1;
     while ((opt = getopt(__argc2, __argv2.data(), optstr)) != -1) {
         switch (opt) {
+        case 'b': {
+            if (!optarg || !*optarg) {
+                TVPrintError("-b requires a non-empty host name or address");
+                exit(EXIT_FAILURE);
+            }
+            gBindHost = [NSString stringWithUTF8String:optarg];
+            TVLog(@"CLI: Bind host set to '%@'", gBindHost);
+            break;
+        }
         case 'p': {
             long port = strtol(optarg, NULL, 10);
             if (port <= 0 || port > 65535) {
@@ -1183,61 +1172,6 @@ static void parseCLI(int argc, const char *argv[]) {
             TVLog(@"CLI: FPS preference set to min=%d pref=%d max=%d", gFpsMin, gFpsPref, gFpsMax);
             break;
         }
-        case 'd': {
-            double s = strtod(optarg, NULL);
-            if (s < 0.0 || s > 0.5) {
-                TVPrintError("Invalid defer window seconds: %s (expected 0..0.5)", optarg);
-                exit(EXIT_FAILURE);
-            }
-            gDeferWindowSec = s;
-            TVLog(@"CLI: Defer window set to %.3f sec", gDeferWindowSec);
-            break;
-        }
-        case 'Q': {
-            long q = strtol(optarg, NULL, 10);
-            if (q < 0 || q > 8) {
-                TVPrintError("Invalid max in-flight: %s (expected 0..8)", optarg);
-                exit(EXIT_FAILURE);
-            }
-            gMaxInflightUpdates = (int)q;
-            TVLog(@"CLI: Max in-flight updates set to %d", gMaxInflightUpdates);
-            break;
-        }
-        case 't': {
-            long ts = strtol(optarg, NULL, 10);
-            if (ts < 8 || ts > 128) {
-                TVPrintError("Invalid tile size: %s (expected 8..128)", optarg);
-                exit(EXIT_FAILURE);
-            }
-            gTileSize = (int)ts;
-            TVLog(@"CLI: Tile size set to %d", gTileSize);
-            break;
-        }
-        case 'P': {
-            long p = strtol(optarg, NULL, 10);
-            if (p < 0 || p > 100) {
-                TVPrintError("Invalid threshold percent: %s (expected 0..100; 0 disables dirty detection)", optarg);
-                exit(EXIT_FAILURE);
-            }
-            gFullscreenThresholdPercent = (int)p;
-            TVLog(@"CLI: Fullscreen threshold percent set to %d", gFullscreenThresholdPercent);
-            break;
-        }
-        case 'R': {
-            long m = strtol(optarg, NULL, 10);
-            if (m < 1 || m > 4096) {
-                TVPrintError("Invalid max rects: %s (expected 1..4096)", optarg);
-                exit(EXIT_FAILURE);
-            }
-            gMaxRectsLimit = (int)m;
-            TVLog(@"CLI: Max rects limit set to %d", gMaxRectsLimit);
-            break;
-        }
-        case 'a': {
-            gAsyncSwapEnabled = YES;
-            TVLog(@"CLI: Non-blocking swap enabled (-a)");
-            break;
-        }
         case 'W': {
             double px = strtod(optarg, NULL);
             if (px == 0.0) {
@@ -1326,6 +1260,26 @@ static void parseCLI(int argc, const char *argv[]) {
             }
             break;
         }
+        case 'o': {
+            const char *val = optarg ? optarg : "0";
+            if (strcasecmp(val, "on") == 0 || strcmp(val, "1") == 0 || strcasecmp(val, "true") == 0) {
+                gOrientationFixQuad = 3; // legacy: "on" means 270° (original behavior)
+                TVLog(@"CLI: Orientation fix quad=3 (-o %s)", [@(val) UTF8String]);
+            } else if (strcasecmp(val, "off") == 0 || strcmp(val, "0") == 0 || strcasecmp(val, "false") == 0) {
+                gOrientationFixQuad = 0;
+                TVLog(@"CLI: Orientation fix quad=0 (-o %s)", [@(val) UTF8String]);
+            } else {
+                long v = strtol(val, NULL, 10);
+                if (v >= 0 && v <= 3) {
+                    gOrientationFixQuad = (int)v;
+                    TVLog(@"CLI: Orientation fix quad=%d (-o %s)", gOrientationFixQuad, [@(val) UTF8String]);
+                } else {
+                    TVPrintError("Invalid -o value: %s (expected 0..3 or on|off)", val);
+                    exit(EXIT_FAILURE);
+                }
+            }
+            break;
+        }
         case 'I': {
             const char *val = optarg ? optarg : "off";
             if (strcasecmp(val, "on") == 0 || strcmp(val, "1") == 0 || strcasecmp(val, "true") == 0) {
@@ -1370,15 +1324,7 @@ static void parseCLI(int argc, const char *argv[]) {
                 TVPrintError("Invalid httpDir path for -D: %s (must be absolute)", path);
                 exit(EXIT_FAILURE);
             }
-            if (gHttpDirOverride) {
-                free(gHttpDirOverride);
-                gHttpDirOverride = NULL;
-            }
             gHttpDirOverride = strdup(path);
-            if (!gHttpDirOverride) {
-                TVPrintError("Failed to duplicate httpDir path");
-                exit(EXIT_FAILURE);
-            }
             TVLog(@"CLI: HTTP dir override set to %s (-D)", path);
             break;
         }
@@ -1388,15 +1334,7 @@ static void parseCLI(int argc, const char *argv[]) {
                 TVPrintError("Invalid value for -e (sslcertfile)");
                 exit(EXIT_FAILURE);
             }
-            if (gSslCertPath) {
-                free(gSslCertPath);
-                gSslCertPath = NULL;
-            }
             gSslCertPath = strdup(path);
-            if (!gSslCertPath) {
-                TVPrintError("Failed to duplicate sslcertfile path");
-                exit(EXIT_FAILURE);
-            }
             TVLog(@"CLI: SSL cert file set (-e %s)", path);
             break;
         }
@@ -1406,15 +1344,7 @@ static void parseCLI(int argc, const char *argv[]) {
                 TVPrintError("Invalid value for -k (sslkeyfile)");
                 exit(EXIT_FAILURE);
             }
-            if (gSslKeyPath) {
-                free(gSslKeyPath);
-                gSslKeyPath = NULL;
-            }
             gSslKeyPath = strdup(path);
-            if (!gSslKeyPath) {
-                TVPrintError("Failed to duplicate sslkeyfile path");
-                exit(EXIT_FAILURE);
-            }
             TVLog(@"CLI: SSL key file set (-k %s)", path);
             break;
         }
@@ -1487,428 +1417,6 @@ static int gBytesPerPixel = 4; // ARGB/BGRA 32-bit
 static void *gFrontBuffer = NULL; // Exposed to VNC clients via gScreen->frameBuffer
 static void *gBackBuffer = NULL;  // We render into this and then swap
 
-// Hash algorithm selection (auto: prefer CRC32 on ARM with hardware support)
-#if DEBUG
-#if defined(__aarch64__) || defined(__ARM_FEATURE_CRC32)
-static const BOOL cUseCRC32Hash = YES;
-#else
-static const BOOL cUseCRC32Hash = NO;
-#endif
-#endif
-
-typedef struct {
-    int x, y, w, h;
-} DirtyRect;
-
-#if defined(__aarch64__) || defined(__ARM_FEATURE_CRC32)
-NS_INLINE uint64_t crc32_update(uint64_t h, const uint8_t *data, size_t len) {
-    uint32_t c = (uint32_t)h;
-    const uint8_t *p = data;
-    size_t n = len;
-    // Process 8-byte chunks
-    while (n >= 8) {
-        uint64_t v;
-        // Unaligned load is acceptable on ARM64; use memcpy to be safe for strict aliasing.
-        memcpy(&v, p, sizeof(v));
-        c = __builtin_arm_crc32d(c, v);
-        p += 8;
-        n -= 8;
-    }
-    if (n >= 4) {
-        uint32_t v32;
-        memcpy(&v32, p, sizeof(v32));
-        c = __builtin_arm_crc32w(c, v32);
-        p += 4;
-        n -= 4;
-    }
-    if (n >= 2) {
-        uint16_t v16;
-        memcpy(&v16, p, sizeof(v16));
-        c = __builtin_arm_crc32h(c, v16);
-        p += 2;
-        n -= 2;
-    }
-    if (n) {
-        c = __builtin_arm_crc32b(c, *p);
-    }
-    return (uint64_t)c;
-}
-#else
-NS_INLINE uint64_t fnv1a_basis(void) { return 1469598103934665603ULL; }
-NS_INLINE uint64_t fnv1a_update(uint64_t h, const uint8_t *data, size_t len) {
-    const uint64_t FNV_PRIME = 1099511628211ULL;
-    for (size_t i = 0; i < len; ++i) {
-        h ^= (uint64_t)data[i];
-        h *= FNV_PRIME;
-    }
-    return h;
-}
-#endif
-
-// Generic hash wrappers: prefer hardware CRC32 when enabled and available, else fallback to FNV-1a.
-NS_INLINE uint64_t hash_basis(void) {
-#if defined(__aarch64__) || defined(__ARM_FEATURE_CRC32)
-    return 0u; // CRC32 initial accumulator
-#else
-    return fnv1a_basis();
-#endif
-}
-
-NS_INLINE uint64_t hash_update(uint64_t h, const uint8_t *data, size_t len) {
-#if defined(__aarch64__) || defined(__ARM_FEATURE_CRC32)
-    return crc32_update(h, data, len);
-#else
-    // If CRC32 not supported at compile time, fallback to FNV-1a
-    return fnv1a_update(h, data, len);
-#endif
-}
-
-#pragma mark - Display Tiling
-
-static int gTilesX = 0;
-static int gTilesY = 0;
-static size_t gTileCount = 0;
-static uint64_t *gPrevHash = NULL;
-static uint64_t *gCurrHash = NULL;
-static uint8_t *gPendingDirty = NULL; // per-tile pending dirty mask
-static BOOL gHasPending = NO;
-
-static void initializeTilingOrReset(void) {
-    int tilesX = (gWidth + gTileSize - 1) / gTileSize;
-    int tilesY = (gHeight + gTileSize - 1) / gTileSize;
-    size_t tileCount = (size_t)tilesX * (size_t)tilesY;
-
-    if (tilesX != gTilesX || tilesY != gTilesY || tileCount != gTileCount || !gPrevHash || !gCurrHash) {
-        free(gPrevHash);
-        free(gCurrHash);
-
-        if (gPendingDirty) {
-            free(gPendingDirty);
-            gPendingDirty = NULL;
-        }
-
-        gPrevHash = (uint64_t *)malloc(tileCount * sizeof(uint64_t));
-        gCurrHash = (uint64_t *)malloc(tileCount * sizeof(uint64_t));
-        gPendingDirty = (uint8_t *)malloc(tileCount);
-
-        if (!gPrevHash || !gCurrHash) {
-            TVPrintError("Out of memory for tile hashes");
-            exit(EXIT_FAILURE);
-        }
-
-        for (size_t i = 0; i < tileCount; ++i) {
-            gPrevHash[i] = 0; // force full update first frame
-            gCurrHash[i] = hash_basis();
-        }
-
-        gTilesX = tilesX;
-        gTilesY = tilesY;
-        gTileCount = tileCount;
-
-        if (gPendingDirty)
-            memset(gPendingDirty, 0, gTileCount);
-    } else {
-        for (size_t i = 0; i < gTileCount; ++i) {
-            gCurrHash[i] = hash_basis();
-        }
-    }
-}
-
-NS_INLINE void swapTileHashes(void) {
-    uint64_t *tmp = gPrevHash;
-    gPrevHash = gCurrHash;
-    gCurrHash = tmp;
-}
-
-NS_INLINE void resetCurrTileHashes(void) {
-    if (!gCurrHash || gTileCount == 0)
-        return;
-    uint64_t basis = hash_basis();
-    for (size_t i = 0; i < gTileCount; ++i) {
-        gCurrHash[i] = basis;
-    }
-}
-
-// Accumulate pending dirty tiles for time-based coalescing
-NS_INLINE void accumulatePendingDirty(void) {
-    if (!gPendingDirty)
-        return;
-
-    for (size_t i = 0; i < gTileCount; ++i) {
-        if (gCurrHash[i] != gPrevHash[i])
-            gPendingDirty[i] = 1;
-    }
-}
-
-NS_INLINE void hashTiledFromBuffer(const uint8_t *buf, int width, int height, size_t bpr) {
-    resetCurrTileHashes();
-    for (int y = 0; y < height; ++y) {
-        int ty = y / gTileSize;
-        for (int tx = 0; tx < gTilesX; ++tx) {
-            int startX = tx * gTileSize;
-            if (startX >= width)
-                break;
-            int endX = startX + gTileSize;
-            if (endX > width)
-                endX = width;
-            size_t offset = (size_t)startX * (size_t)gBytesPerPixel;
-            size_t length = (size_t)(endX - startX) * (size_t)gBytesPerPixel;
-            size_t tileIndex = (size_t)ty * (size_t)gTilesX + (size_t)tx;
-            gCurrHash[tileIndex] = hash_update(gCurrHash[tileIndex], buf + (size_t)y * bpr + offset, length);
-        }
-    }
-}
-
-// Sparse sampling hash: sample a subset of pixels per tile to reduce bandwidth.
-NS_INLINE void hashTiledFromBufferSparse(const uint8_t *buf, int width, int height, size_t bpr, int sx, int sy) {
-    if (sx < 1)
-        sx = 1;
-    if (sy < 1)
-        sy = 1;
-    resetCurrTileHashes();
-    for (int y = 0; y < height; y += sy) {
-        int ty = y / gTileSize;
-        for (int tx = 0; tx < gTilesX; ++tx) {
-            int startX = tx * gTileSize;
-            if (startX >= width)
-                break;
-            int endX = startX + gTileSize;
-            if (endX > width)
-                endX = width;
-            size_t tileIndex = (size_t)ty * (size_t)gTilesX + (size_t)tx;
-            for (int x = startX; x < endX; x += sx) {
-                const uint8_t *p = buf + (size_t)y * bpr + (size_t)x * (size_t)gBytesPerPixel;
-                gCurrHash[tileIndex] = hash_update(gCurrHash[tileIndex], p, (size_t)gBytesPerPixel);
-            }
-            // Ensure last column contributes even if not aligned to stride
-            int lastX = endX - 1;
-            if (lastX >= startX && ((endX - startX - 1) % sx) != 0) {
-                const uint8_t *p = buf + (size_t)y * bpr + (size_t)lastX * (size_t)gBytesPerPixel;
-                gCurrHash[tileIndex] = hash_update(gCurrHash[tileIndex], p, (size_t)gBytesPerPixel);
-            }
-        }
-    }
-    // Also sample the last row if height-1 isn't covered by the stride
-    int lastY = height - 1;
-    if (lastY >= 0 && ((height - 1) % sy) != 0) {
-        int ty = lastY / gTileSize;
-        for (int tx = 0; tx < gTilesX; ++tx) {
-            int startX = tx * gTileSize;
-            if (startX >= width)
-                break;
-            int endX = startX + gTileSize;
-            if (endX > width)
-                endX = width;
-            size_t tileIndex = (size_t)ty * (size_t)gTilesX + (size_t)tx;
-            for (int x = startX; x < endX; x += sx) {
-                const uint8_t *p = buf + (size_t)lastY * bpr + (size_t)x * (size_t)gBytesPerPixel;
-                gCurrHash[tileIndex] = hash_update(gCurrHash[tileIndex], p, (size_t)gBytesPerPixel);
-            }
-            int lastX = endX - 1;
-            if (lastX >= startX && ((endX - startX - 1) % sx) != 0) {
-                const uint8_t *p = buf + (size_t)lastY * bpr + (size_t)lastX * (size_t)gBytesPerPixel;
-                gCurrHash[tileIndex] = hash_update(gCurrHash[tileIndex], p, (size_t)gBytesPerPixel);
-            }
-        }
-    }
-}
-
-// Parallel full hash over tiles: split by tile rows to reduce wall clock at flush.
-NS_INLINE void hashTiledFromBufferParallel(const uint8_t *buf, int width, int height, size_t bpr, int threads) {
-    if (threads <= 1) {
-        hashTiledFromBuffer(buf, width, height, bpr);
-        return;
-    }
-    resetCurrTileHashes();
-    // Split by tile row bands
-    int tilesY = gTilesY;
-    if (tilesY <= 0)
-        return;
-    int bands = threads;
-    if (bands > tilesY)
-        bands = tilesY;
-    dispatch_group_t grp = dispatch_group_create();
-    for (int band = 0; band < bands; ++band) {
-        dispatch_group_async(grp, dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
-            for (int ty = band; ty < tilesY; ty += bands) {
-                int startY = ty * gTileSize;
-                int endY = startY + gTileSize;
-                if (startY >= height)
-                    break;
-                if (endY > height)
-                    endY = height;
-                for (int y = startY; y < endY; ++y) {
-                    for (int tx = 0; tx < gTilesX; ++tx) {
-                        int startX = tx * gTileSize;
-                        if (startX >= width)
-                            break;
-                        int endX = startX + gTileSize;
-                        if (endX > width)
-                            endX = width;
-                        size_t offset = (size_t)startX * (size_t)gBytesPerPixel;
-                        size_t length = (size_t)(endX - startX) * (size_t)gBytesPerPixel;
-                        size_t tileIndex = (size_t)ty * (size_t)gTilesX + (size_t)tx;
-                        // Each tileIndex is updated by a single band (fixed ty), no race across bands.
-                        gCurrHash[tileIndex] =
-                            hash_update(gCurrHash[tileIndex], buf + (size_t)y * bpr + offset, length);
-                    }
-                }
-            }
-        });
-    }
-    dispatch_group_wait(grp, DISPATCH_TIME_FOREVER);
-}
-
-// Build dirty rectangles from tile hash diffs. Returns number of rects written, up to maxRects.
-static int buildDirtyRects(DirtyRect *rects, int maxRects, int *outChangedTiles) {
-    int rectCount = 0;
-    int changedTiles = 0;
-
-    // First pass: horizontal merge per tile row
-    for (int ty = 0; ty < gTilesY; ++ty) {
-        int tx = 0;
-        while (tx < gTilesX) {
-            size_t idx = (size_t)ty * (size_t)gTilesX + (size_t)tx;
-            int changed = (gCurrHash[idx] != gPrevHash[idx]);
-            if (!changed) {
-                tx++;
-                continue;
-            }
-
-            // Start of a run
-            int runStart = tx;
-            changedTiles++;
-            tx++;
-            while (tx < gTilesX) {
-                size_t idx2 = (size_t)ty * (size_t)gTilesX + (size_t)tx;
-                if (gCurrHash[idx2] != gPrevHash[idx2]) {
-                    changedTiles++;
-                    tx++;
-                } else
-                    break;
-            }
-
-            // Emit rect for this horizontal run
-            if (rectCount < maxRects) {
-                int x = runStart * gTileSize;
-                int w = (tx - runStart) * gTileSize;
-                int y = ty * gTileSize;
-                int h = gTileSize;
-                // Clip to screen bounds
-                if (x + w > gWidth)
-                    w = gWidth - x;
-                if (y + h > gHeight)
-                    h = gHeight - y;
-                rects[rectCount++] = (DirtyRect){x, y, w, h};
-            } else {
-                // Too many rects; caller may fallback to fullscreen
-                if (outChangedTiles)
-                    *outChangedTiles = changedTiles;
-                return rectCount;
-            }
-        }
-    }
-
-    // Optional vertical merge: merge rects with same x,w and contiguous vertically
-    // Simple O(n^2) merge for small rect counts
-    for (int i = 0; i < rectCount; ++i) {
-        for (int j = i + 1; j < rectCount; ++j) {
-            if (rects[j].w == 0 || rects[j].h == 0)
-                continue;
-            if (rects[i].x == rects[j].x && rects[i].w == rects[j].w) {
-                if (rects[i].y + rects[i].h == rects[j].y) {
-                    rects[i].h += rects[j].h;
-                    rects[j].w = rects[j].h = 0; // mark removed
-                } else if (rects[j].y + rects[j].h == rects[i].y) {
-                    rects[j].h += rects[i].h;
-                    rects[i].w = rects[i].h = 0;
-                }
-            }
-        }
-    }
-
-    // Compact removed entries
-    int k = 0;
-    for (int i = 0; i < rectCount; ++i) {
-        if (rects[i].w > 0 && rects[i].h > 0)
-            rects[k++] = rects[i];
-    }
-
-    rectCount = k;
-    if (outChangedTiles)
-        *outChangedTiles = changedTiles;
-    return rectCount;
-}
-
-// Build rects from pending mask by temporarily mapping to hashes
-static int buildRectsFromPending(DirtyRect *rects, int maxRects) {
-    if (!gPendingDirty)
-        return 0;
-
-    // Temporarily mark curr!=prev for pending tiles
-    // Save originals
-    // For efficiency, we only synthesize gCurrHash markers without touching buffers
-    size_t changed = 0;
-    for (size_t i = 0; i < gTileCount; ++i) {
-        if (gPendingDirty[i]) {
-            if (gCurrHash[i] == gPrevHash[i])
-                gCurrHash[i] ^= 0x1ULL;
-            changed++;
-        }
-    }
-
-    int dummyTiles = 0;
-    int cnt = buildDirtyRects(rects, maxRects, &dummyTiles);
-
-    // Restore hashes for tiles we toggled
-    for (size_t i = 0; i < gTileCount; ++i) {
-        if (gPendingDirty[i]) {
-            if (gCurrHash[i] == gPrevHash[i])
-                gCurrHash[i] ^= 0x1ULL; // unlikely path
-            else if ((gCurrHash[i] ^ 0x1ULL) == gPrevHash[i])
-                gCurrHash[i] ^= 0x1ULL;
-        }
-    }
-
-    (void)changed;
-    return cnt;
-}
-
-NS_INLINE void markRectsModified(DirtyRect *rects, int rectCount) {
-    for (int i = 0; i < rectCount; ++i) {
-        rfbMarkRectAsModified(gScreen, rects[i].x, rects[i].y, rects[i].x + rects[i].w, rects[i].y + rects[i].h);
-    }
-}
-
-NS_INLINE void copyRectsFromBackToFront(DirtyRect *rects, int rectCount) {
-    size_t fbBPR = (size_t)gWidth * (size_t)gBytesPerPixel;
-    for (int i = 0; i < rectCount; ++i) {
-        int x = rects[i].x, y = rects[i].y, w = rects[i].w, h = rects[i].h;
-        size_t rowBytes = (size_t)w * (size_t)gBytesPerPixel;
-        for (int r = 0; r < h; ++r) {
-            uint8_t *dst = (uint8_t *)gFrontBuffer + (size_t)(y + r) * fbBPR + (size_t)x * gBytesPerPixel;
-            uint8_t *src = (uint8_t *)gBackBuffer + (size_t)(y + r) * fbBPR + (size_t)x * gBytesPerPixel;
-            memcpy(dst, src, rowBytes);
-        }
-    }
-}
-
-#pragma mark - Display Hooks
-
-static std::atomic<int> gInflight(0);
-
-// Track encode life-cycle to provide backpressure via inflight counter
-static void displayHook(rfbClientPtr cl) {
-    (void)cl;
-    gInflight.fetch_add(1, std::memory_order_relaxed);
-}
-
-static void displayFinishedHook(rfbClientPtr cl, int result) {
-    (void)cl;
-    (void)result;
-    gInflight.fetch_sub(1, std::memory_order_relaxed);
-}
-
 static int setDesktopSizeHook(int width, int height, int numScreens, rfbExtDesktopScreen *extDesktopScreens,
                               rfbClientPtr cl) {
     (void)cl;
@@ -1919,19 +1427,10 @@ static int setDesktopSizeHook(int width, int height, int numScreens, rfbExtDeskt
     return rfbExtDesktopSize_ResizeProhibited;
 }
 
-#pragma mark - Display Tiling Constants
-
-// Hashing performance controls
-static const int cHashStrideX = 4;              // sparse sampling stride X (>=1; 1 = full scan)
-static const int cHashStrideY = 4;              // sparse sampling stride Y (>=1; 1 = full scan)
-static const BOOL cSparseHashDuringDefer = YES; // use sparse hashing while within defer window
-// Skip vImage scaling when src/dst size difference is small; copy with pad/crop instead
-static const int cNoScalePadThresholdPx = 8; // if both |dW| and |dH| <= this, do pad/crop copy
-
-// Flush-time hashing optimization
-static const BOOL cParallelHashOnFlush = YES; // use parallel hashing at flush to reduce wall time
-
 #pragma mark - Frame Handlers
+
+// Skip vImage scaling when src/dst size difference is small; copy with pad/crop instead.
+static const int cNoScalePadThresholdPx = 8;
 
 static std::atomic<int> gRotationQuad(0); // 0=0°, 1=90°, 2=180°, 3=270° (clockwise)
 static void *gRotateScratch = NULL;       // rotation scratch (for 90°/270°)
@@ -1981,10 +1480,6 @@ NS_INLINE void maybeResizeFramebufferForRotation(int rotQ) {
     void *newFront = calloc(1, newFBSize);
     void *newBack = calloc(1, newFBSize);
     if (!newFront || !newBack) {
-        if (newFront)
-            free(newFront);
-        if (newBack)
-            free(newBack);
         TVPrintError("Failed to allocate required frame buffers");
         exit(EXIT_FAILURE);
     }
@@ -2017,13 +1512,6 @@ NS_INLINE void maybeResizeFramebufferForRotation(int rotQ) {
     if (gScreen)
         gScreen->frameBuffer = (char *)gFrontBuffer;
 
-    // Re-init tiling/hash state for new geometry
-    initializeTilingOrReset();
-    // Clear pending dirty flags to avoid carrying over old-geometry state into the new geometry
-    if (gPendingDirty)
-        memset(gPendingDirty, 0, gTileCount);
-
-    gHasPending = NO;
     TVLog(@"Resize: framebuffer changed to %dx%d (rotQ=%d, scale=%.3f)", gWidth, gHeight, rotQ, gScale);
 }
 
@@ -2045,12 +1533,12 @@ NS_INLINE int ensureRotateScratch(size_t w, size_t h) {
 
 NS_INLINE int ensureScaleTemp(size_t srcW, size_t srcH, size_t dstW, size_t dstH, vImage_Flags flags) {
     vImage_Buffer s = {.data = NULL,
-                       .width = (vImagePixelCount)srcW,
                        .height = (vImagePixelCount)srcH,
+                       .width = (vImagePixelCount)srcW,
                        .rowBytes = srcW * (size_t)gBytesPerPixel};
     vImage_Buffer d = {.data = NULL,
-                       .width = (vImagePixelCount)dstW,
                        .height = (vImagePixelCount)dstH,
+                       .width = (vImagePixelCount)dstW,
                        .rowBytes = dstW * (size_t)gBytesPerPixel};
     vImage_Error need = vImageScale_ARGB8888(&s, &d, NULL, flags | kvImageGetTempBufferSize);
     if (need < 0)
@@ -2124,43 +1612,6 @@ NS_INLINE void swapBuffers(void) {
     gScreen->frameBuffer = (char *)gFrontBuffer;
 }
 
-// Try to acquire all clients' sendMutex without blocking.
-// Returns 1 on success and fills locked[] with acquired mutexes (count in *lockedCount),
-// otherwise returns 0 and releases any partial locks.
-static int tryLockAllClients(pthread_mutex_t **locked, size_t *lockedCount, size_t capacity) {
-    *lockedCount = 0;
-    rfbClientIteratorPtr it = rfbGetClientIterator(gScreen);
-    rfbClientPtr cl;
-
-    int ok = 1;
-    while ((cl = rfbClientIteratorNext(it))) {
-        if (*lockedCount >= capacity) {
-            ok = 0;
-            break;
-        }
-        pthread_mutex_t *m = &cl->sendMutex;
-        if (pthread_mutex_trylock(m) == 0) {
-            locked[(*lockedCount)++] = m;
-        } else {
-            ok = 0;
-            break;
-        }
-    }
-
-    rfbReleaseClientIterator(it);
-
-    if (!ok) {
-        // release any that were acquired
-        for (size_t i = 0; i < *lockedCount; ++i) {
-            pthread_mutex_unlock(locked[i]);
-        }
-        *lockedCount = 0;
-        return 0;
-    }
-
-    return 1;
-}
-
 // Blocking lock helpers (original behavior): lock all clients, then unlock all.
 NS_INLINE void lockAllClientsBlocking(void) {
     rfbClientIteratorPtr it = rfbGetClientIterator(gScreen);
@@ -2190,14 +1641,6 @@ static void handleFramebuffer(CMSampleBufferRef sampleBuffer) {
     CVPixelBufferRef pb = CMSampleBufferGetImageBuffer(sampleBuffer);
     if (!pb) {
         TVLogVerbose(@"sampleBuffer has no image buffer (skip)");
-        return;
-    }
-
-    // Busy-drop: if encoders are busy and limit reached, skip this frame (disabled when -Q 0)
-    if (gMaxInflightUpdates > 0 && gInflight.load(std::memory_order_relaxed) >= gMaxInflightUpdates) {
-        // When busy dropping, skip all hashing/dirty work.
-        TVLogVerbose(@"drop frame due to inflight=%d >= limit=%d", gInflight.load(std::memory_order_relaxed),
-                     gMaxInflightUpdates);
         return;
     }
 
@@ -2251,10 +1694,6 @@ static void handleFramebuffer(CMSampleBufferRef sampleBuffer) {
 
     // Copy/Rotate/Scale into back buffer. ScreenCapturer is always portrait-oriented.
     // We rotate by UI orientation then scale to server size.
-    BOOL dirtyDisabled = (gFullscreenThresholdPercent == 0);
-
-    static int sLastRotQ = -1;
-    bool rotationChanged = (sLastRotQ == -1) ? false : ((rotQ & 3) != (sLastRotQ & 3));
     bool needsRotate = (rotQ != 0);
 
     vImage_Buffer srcBuf = {
@@ -2411,383 +1850,23 @@ static void handleFramebuffer(CMSampleBufferRef sampleBuffer) {
     TVLogVerbose(@"unlock pixel buffer took %.3f ms", __tv_msUnlock);
 #endif
 
-    // If rotation just changed, force a full-screen update and reset dirty state
-    // to avoid mixing hashes/pending dirties from the previous orientation.
-    if (rotationChanged) {
-        // Clear pending mask/state
-        if (gPendingDirty)
-            memset(gPendingDirty, 0, gTileCount);
-        gHasPending = NO;
-
-#if DEBUG
-        CFAbsoluteTime __tv_tSwap0 = CFAbsoluteTimeGetCurrent();
-#endif
-
-        if (gAsyncSwapEnabled) {
-            pthread_mutex_t *locked[64];
-            size_t lockedCount = 0;
-            if (tryLockAllClients(locked, &lockedCount, sizeof(locked) / sizeof(locked[0]))) {
-                swapBuffers();
-                for (size_t i = 0; i < lockedCount; ++i)
-                    pthread_mutex_unlock(locked[i]);
-                rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-
-#if DEBUG
-                CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-                TVLogVerbose(@"rotationChanged async-swap+mark fullscreen took %.3f ms",
-                             (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-
-            } else {
-                copyWithStrideTight((uint8_t *)gFrontBuffer, (uint8_t *)gBackBuffer, gWidth, gHeight,
-                                    (size_t)gWidth * (size_t)gBytesPerPixel);
-                rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-
-#if DEBUG
-                CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-                TVLogVerbose(@"rotationChanged copy(fullscreen)+mark took %.3f ms",
-                             (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-            }
-        } else {
-            lockAllClientsBlocking();
-            swapBuffers();
-            rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-            unlockAllClientsBlocking();
-
-#if DEBUG
-            CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-            TVLogVerbose(@"rotationChanged blocking-swap+mark fullscreen took %.3f ms",
-                         (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-        }
-
-        // Skip dirty detection for this frame after rotation; return early
-        sLastRotQ = rotQ;
-
-        // Rotation may not change geometry (0<->180). Maintain hashes here so
-        // the next frame recomputes curr and swaps to form a clean baseline.
-        resetCurrTileHashes();
-        swapTileHashes();
-
-#if DEBUG
-        CFAbsoluteTime __tv_tEnd = CFAbsoluteTimeGetCurrent();
-        TVLogVerbose(@"rotationChanged summary rotQ=%d lock=%.3fms resize=%.3fms rotate=%.3fms scale/copy=%.3fms "
-                     @"total=%.3fms",
-                     rotQ, __tv_msLock, __tv_msResize, __tv_msRotate, __tv_msScaleOrCopy,
-                     (__tv_tEnd - __tv_tStart) * 1000.0);
-#endif
-
-        return;
-    }
-
-    // If dirty detection is disabled, perform a full-screen update
-    if (dirtyDisabled) {
-
-#if DEBUG
-        CFAbsoluteTime __tv_tSwap0 = CFAbsoluteTimeGetCurrent();
-#endif
-
-        if (gAsyncSwapEnabled) {
-            pthread_mutex_t *locked[64];
-            size_t lockedCount = 0;
-            if (tryLockAllClients(locked, &lockedCount, sizeof(locked) / sizeof(locked[0]))) {
-                swapBuffers();
-                for (size_t i = 0; i < lockedCount; ++i)
-                    pthread_mutex_unlock(locked[i]);
-                rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-
-#if DEBUG
-                CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-                TVLogVerbose(@"dirtyDisabled async-swap+mark fullscreen took %.3f ms",
-                             (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-
-            } else {
-                // Whole screen copy fallback (tight -> tight)
-                copyWithStrideTight((uint8_t *)gFrontBuffer, (uint8_t *)gBackBuffer, gWidth, gHeight,
-                                    (size_t)gWidth * (size_t)gBytesPerPixel);
-                rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-
-#if DEBUG
-                CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-                TVLogVerbose(@"dirtyDisabled copy(fullscreen)+mark took %.3f ms", (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-            }
-        } else {
-            // Blocking swap to avoid tearing
-            lockAllClientsBlocking();
-            swapBuffers();
-            rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-            unlockAllClientsBlocking();
-
-#if DEBUG
-            CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-            TVLogVerbose(@"dirtyDisabled blocking-swap+mark fullscreen took %.3f ms",
-                         (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-        }
-
-#if DEBUG
-        CFAbsoluteTime __tv_tEnd = CFAbsoluteTimeGetCurrent();
-        TVLogVerbose(
-            @"dirtyDisabled summary rotQ=%d lock=%.3fms resize=%.3fms rotate=%.3fms scale/copy=%.3fms total=%.3fms",
-            rotQ, __tv_msLock, __tv_msResize, __tv_msRotate, __tv_msScaleOrCopy, (__tv_tEnd - __tv_tStart) * 1000.0);
-#endif
-
-        return;
-    }
-
-    // Build dirty rectangles with deferred coalescing window (enabled)
-    // Lightweight hashing to update pending and decide whether to flush.
-
-#if DEBUG
-    CFAbsoluteTime __tv_tHash0 = CFAbsoluteTimeGetCurrent();
-#endif
-
-    if (cSparseHashDuringDefer && gDeferWindowSec > 0) {
-        hashTiledFromBufferSparse((const uint8_t *)gBackBuffer, gWidth, gHeight,
-                                  (size_t)gWidth * (size_t)gBytesPerPixel, cHashStrideX, cHashStrideY);
-    } else {
-        resetCurrTileHashes();
-        hashTiledFromBuffer((const uint8_t *)gBackBuffer, gWidth, gHeight, (size_t)gWidth * (size_t)gBytesPerPixel);
-    }
-
-#if DEBUG
-    CFAbsoluteTime __tv_tHash1 = CFAbsoluteTimeGetCurrent();
-    CFTimeInterval __tv_msHash = (__tv_tHash1 - __tv_tHash0) * 1000.0;
-    TVLogVerbose(@"tile hashing took %.3f ms (tiles=%zu, tileSize=%d)%@%@", __tv_msHash, gTileCount, gTileSize,
-                 (cSparseHashDuringDefer && gDeferWindowSec > 0) ? @" [sparse]" : @"",
-                 cUseCRC32Hash ? @" [crc32]" : @" [fnv]");
-#endif
-
-    enum { kRectBuf = 1024 };
-    DirtyRect rects[kRectBuf];
-    int changedTiles = 0;
-
-    // Accumulate pending dirty tiles
-
-#if DEBUG
-    CFAbsoluteTime __tv_tPend0 = CFAbsoluteTimeGetCurrent();
-#endif
-
-    accumulatePendingDirty();
-
-#if DEBUG
-    CFAbsoluteTime __tv_tPend1 = CFAbsoluteTimeGetCurrent();
-    CFTimeInterval __tv_msPend = (__tv_tPend1 - __tv_tPend0) * 1000.0;
-    TVLogVerbose(@"accumulate pending took %.3f ms (hasPending=%@)", __tv_msPend, gHasPending ? @"YES" : @"NO");
-#endif
-
-    // Decide whether to flush now
-    BOOL shouldFlush = YES;
-    static CFAbsoluteTime sDeferStartTime = 0;
-    if (gDeferWindowSec > 0) {
-        if (!gHasPending) {
-            gHasPending = YES;
-            sDeferStartTime = CFAbsoluteTimeGetCurrent();
-            shouldFlush = NO; // start window, wait for more
-        } else {
-            CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-            shouldFlush = ((now - sDeferStartTime) >= gDeferWindowSec);
-            TVLogVerbose(@"defer window elapsed=%.3f ms (threshold=%.3f ms) -> %@", (now - sDeferStartTime) * 1000.0,
-                         gDeferWindowSec * 1000.0, shouldFlush ? @"FLUSH" : @"WAIT");
-        }
-    }
-
-    int rectCount = 0;
-    int changedPct = 0;
-    BOOL fullScreen = NO;
-
-    if (!shouldFlush) {
-        // Still deferring: do not notify clients yet; keep previous full-hash baseline.
-
-#if DEBUG
-        CFAbsoluteTime __tv_tEnd = CFAbsoluteTimeGetCurrent();
-        TVLogVerbose(@"deferred (no flush) summary rotQ=%d lock=%.3fms resize=%.3fms rotate=%.3fms scale/copy=%.3fms "
-                     @"hash=%.3fms total=%.3fms",
-                     rotQ, __tv_msLock, __tv_msResize, __tv_msRotate, __tv_msScaleOrCopy, __tv_msHash,
-                     (__tv_tEnd - __tv_tStart) * 1000.0);
-#endif
-
-        return;
-    }
-
-    // At flush: recompute full hashes for precise rects
-    {
-
-#if DEBUG
-        CFAbsoluteTime __tv_tHashFull0 = CFAbsoluteTimeGetCurrent();
-#endif
-
-        if (cParallelHashOnFlush) {
-            // Use number of logical CPUs as thread hint (capped)
-            int threads = (int)[[NSProcessInfo processInfo] processorCount];
-            if (threads < 2)
-                threads = 2;
-            if (threads > 8)
-                threads = 8;
-            hashTiledFromBufferParallel((const uint8_t *)gBackBuffer, gWidth, gHeight,
-                                        (size_t)gWidth * (size_t)gBytesPerPixel, threads);
-        } else {
-            resetCurrTileHashes();
-            hashTiledFromBuffer((const uint8_t *)gBackBuffer, gWidth, gHeight, (size_t)gWidth * (size_t)gBytesPerPixel);
-        }
-
-#if DEBUG
-        CFAbsoluteTime __tv_tHashFull1 = CFAbsoluteTimeGetCurrent();
-        __tv_msHash = (__tv_tHashFull1 - __tv_tHashFull0) * 1000.0;
-        TVLogVerbose(@"tile hashing (flush full)%@ took %.3f ms (tiles=%zu, tileSize=%d)%@",
-                     cParallelHashOnFlush ? @" [parallel]" : @"", __tv_msHash, gTileCount, gTileSize,
-                     cUseCRC32Hash ? @" [crc32]" : @" [fnv]");
-#endif
-    }
-
-// Promote pending tiles into rects
-#if DEBUG
-    CFAbsoluteTime __tv_tRects0 = CFAbsoluteTimeGetCurrent();
-#endif
-
-    rectCount = buildRectsFromPending(rects, MIN(gMaxRectsLimit, kRectBuf));
-
-    // If anything from this frame is also new dirty not in pending, ensure included
-    int extraTiles = 0;
-    if (rectCount == 0) {
-        rectCount = buildDirtyRects(rects, MIN(gMaxRectsLimit, kRectBuf), &changedTiles);
-    } else {
-        // Merge current frame dirties by re-running with hashes, bounded
-        DirtyRect rectsNow[kRectBuf];
-        int nowCount = buildDirtyRects(rectsNow, MIN(gMaxRectsLimit, kRectBuf), &extraTiles);
-
-        // Simple append then vertical merge will compact later in pipeline
-        int space = kRectBuf - rectCount;
-        int take = nowCount < space ? nowCount : space;
-        if (take > 0)
-            memcpy(&rects[rectCount], rectsNow, (size_t)take * sizeof(DirtyRect));
-        rectCount += take;
-    }
-
-    int totalTiles = (int)gTileCount;
-    int totalChanged = changedTiles + extraTiles;
-    changedPct = (totalTiles > 0) ? (totalChanged * 100 / totalTiles) : 100;
-
-    if (rectCount >= gMaxRectsLimit) {
-        // Collapse to bounding box
-        int minX = gWidth, minY = gHeight, maxX = 0, maxY = 0;
-        for (int i = 0; i < rectCount; ++i) {
-            if (rects[i].w <= 0 || rects[i].h <= 0)
-                continue;
-            if (rects[i].x < minX)
-                minX = rects[i].x;
-            if (rects[i].y < minY)
-                minY = rects[i].y;
-            if (rects[i].x + rects[i].w > maxX)
-                maxX = rects[i].x + rects[i].w;
-            if (rects[i].y + rects[i].h > maxY)
-                maxY = rects[i].y + rects[i].h;
-        }
-
-        rects[0] = (DirtyRect){minX, minY, maxX - minX, maxY - minY};
-        rectCount = 1;
-
-        TVLogVerbose(@"rects exceeded limit -> collapse to bbox");
-    }
-
-    fullScreen = (changedPct >= gFullscreenThresholdPercent) || rectCount == 0;
-
-#if DEBUG
-    CFAbsoluteTime __tv_tRects1 = CFAbsoluteTimeGetCurrent();
-    CFTimeInterval __tv_msRects = (__tv_tRects1 - __tv_tRects0) * 1000.0;
-    TVLogVerbose(@"build rects took %.3f ms (rects=%d, changedTiles=%d, extraTiles=%d, changedPct=%d%%, fsThresh=%d%%, "
-                 @"fullscreen=%@)",
-                 __tv_msRects, rectCount, changedTiles, extraTiles, changedPct, gFullscreenThresholdPercent,
-                 fullScreen ? @"YES" : @"NO");
-#endif
-
-    // Clear pending
-    if (gPendingDirty)
-        memset(gPendingDirty, 0, gTileCount);
-
-    gHasPending = NO;
-
+    // Publish every captured change. LibVNCServer coalesces pending client regions;
+    // there is no frame queue to bound, and dropping here can lose the final change.
 #if DEBUG
     CFAbsoluteTime __tv_tSwap0 = CFAbsoluteTimeGetCurrent();
 #endif
 
-    if (gAsyncSwapEnabled) {
-        // Try non-blocking swap with fallback to single-buffer copy.
-        pthread_mutex_t *locked[64];
-        size_t lockedCount = 0;
-
-        if (tryLockAllClients(locked, &lockedCount, sizeof(locked) / sizeof(locked[0]))) {
-            swapBuffers();
-            for (size_t i = 0; i < lockedCount; ++i)
-                pthread_mutex_unlock(locked[i]);
-            if (fullScreen) {
-                rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-            } else {
-                markRectsModified(rects, rectCount);
-            }
-
-#if DEBUG
-            CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-            TVLogVerbose(@"async-swap+mark took %.3f ms (%@)", (__tv_tSwap1 - __tv_tSwap0) * 1000.0,
-                         fullScreen ? @"fullscreen" : @"partial");
-#endif
-
-        } else {
-            if (fullScreen) {
-                // Whole screen copy fallback (tight -> tight)
-                copyWithStrideTight((uint8_t *)gFrontBuffer, (uint8_t *)gBackBuffer, gWidth, gHeight,
-                                    (size_t)gWidth * (size_t)gBytesPerPixel);
-                rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-
-#if DEBUG
-                CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-                TVLogVerbose(@"async path copy(fullscreen)+mark took %.3f ms", (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-
-            } else {
-                // Only copy dirty regions from back to front to reduce tearing and bandwidth
-                copyRectsFromBackToFront(rects, rectCount);
-                markRectsModified(rects, rectCount);
-
-#if DEBUG
-                CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-                TVLogVerbose(@"async path copy(dirty %d rects)+mark took %.3f ms", rectCount,
-                             (__tv_tSwap1 - __tv_tSwap0) * 1000.0);
-#endif
-            }
-        }
-    } else {
-        // Original blocking behavior to avoid tearing.
-        lockAllClientsBlocking();
-        swapBuffers();
-        if (fullScreen) {
-            rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
-        } else {
-            markRectsModified(rects, rectCount);
-        }
-        unlockAllClientsBlocking();
-
-#if DEBUG
-        CFAbsoluteTime __tv_tSwap1 = CFAbsoluteTimeGetCurrent();
-        TVLogVerbose(@"blocking-swap+mark took %.3f ms (%@)", (__tv_tSwap1 - __tv_tSwap0) * 1000.0,
-                     fullScreen ? @"fullscreen" : @"partial");
-#endif
-    }
-
-    // Prepare for next frame: current hashes become previous
-    swapTileHashes();
-    sLastRotQ = rotQ;
+    lockAllClientsBlocking();
+    swapBuffers();
+    rfbMarkRectAsModified(gScreen, 0, 0, gWidth, gHeight);
+    unlockAllClientsBlocking();
 
 #if DEBUG
     CFAbsoluteTime __tv_tEnd = CFAbsoluteTimeGetCurrent();
-    TVLogVerbose(@"frame summary rotQ=%d lock=%.3fms resize=%.3fms rotate=%.3fms scale/copy=%.3fms hash=%.3fms "
-                 @"rects=%.3fms total=%.3fms (rectCount=%d, changedPct=%d%%, fullscreen=%@, inflight=%d/%d)",
-                 rotQ, __tv_msLock, __tv_msResize, __tv_msRotate, __tv_msScaleOrCopy, __tv_msHash, __tv_msRects,
-                 (__tv_tEnd - __tv_tStart) * 1000.0, rectCount, changedPct, fullScreen ? @"YES" : @"NO",
-                 gInflight.load(std::memory_order_relaxed), gMaxInflightUpdates);
+    TVLogVerbose(@"frame summary rotQ=%d lock=%.3fms resize=%.3fms rotate=%.3fms scale/copy=%.3fms "
+                 @"publish/wait=%.3fms total=%.3fms",
+                 rotQ, __tv_msLock, __tv_msResize, __tv_msRotate, __tv_msScaleOrCopy,
+                 (__tv_tEnd - __tv_tSwap0) * 1000.0, (__tv_tEnd - __tv_tStart) * 1000.0);
 #endif
 }
 
@@ -2962,14 +2041,8 @@ NS_INLINE CGPoint vncPointToDevicePoint(int vx, int vy) {
     int rotQ = (gOrientationSyncEnabled ? gRotationQuad.load(std::memory_order_relaxed) : 0) & 3;
 
 #if !TARGET_IPHONE_SIMULATOR
-    // On iPad, align input coordinates with an extra +270° CW rotation
-    // (i.e., -90°) per corrected requirement.
-    static BOOL sIsPad = NO;
-    static dispatch_once_t sPadOnce;
-    dispatch_once(&sPadOnce, ^{
-        sIsPad = ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad);
-    });
-    int effRotQ = (rotQ + (sIsPad ? 3 : 0)) & 3;
+    // Apply user-configured rotation offset (0..3 quadrants CW)
+    int effRotQ = (rotQ + gOrientationFixQuad) & 3;
 #else
     int effRotQ = rotQ;
 #endif
@@ -3043,9 +2116,66 @@ typedef struct {
     BOOL wheelFlushScheduled;          // whether a flush is pending for this client
     BOOL isRepeaterClient;             // whether this client is a repeater
     char clientId8[CLIENT_ID_LEN + 1]; // cached 8-char client id (NUL-terminated)
+#if DEBUG
+    uint64_t updateStartNs;
+    uint64_t updateStartCpuNs;
+    uint64_t statsStartNs;
+    uint64_t updateWallNs;
+    uint64_t updateCpuNs;
+    uint64_t updateBytes;
+    uint32_t updateStartBytes;
+    unsigned int updateCount;
+#endif
 } TVClientState;
 
 NS_INLINE TVClientState *tvGetClientState(rfbClientPtr cl) { return cl ? (TVClientState *)cl->clientData : NULL; }
+
+#if DEBUG
+static uint64_t threadCpuTimeNs(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) != 0) {
+        perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
+        abort();
+    }
+    return (uint64_t)ts.tv_sec * NSEC_PER_SEC + (uint64_t)ts.tv_nsec;
+}
+
+// These hooks bracket encoding AND synchronous socket writes, not just encoding.
+static void displayHook(rfbClientPtr cl) {
+    TVClientState *st = tvGetClientState(cl);
+    if (!st)
+        return;
+    st->updateStartBytes = (uint32_t)rfbStatGetSentBytes(cl);
+    st->updateStartNs = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    st->updateStartCpuNs = threadCpuTimeNs();
+    if (!st->statsStartNs)
+        st->statsStartNs = st->updateStartNs;
+}
+
+static void displayFinishedHook(rfbClientPtr cl, int result) {
+    TVClientState *st = tvGetClientState(cl);
+    if (!st)
+        return;
+    uint64_t cpuNs = threadCpuTimeNs();
+    uint64_t nowNs = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    st->updateWallNs += nowNs - st->updateStartNs;
+    st->updateCpuNs += cpuNs - st->updateStartCpuNs;
+    st->updateBytes += (uint32_t)((uint32_t)rfbStatGetSentBytes(cl) - st->updateStartBytes);
+    st->updateCount++;
+    double seconds = (double)(nowNs - st->statsStartNs) / NSEC_PER_SEC;
+    if (seconds >= 5.0 || !result) {
+        TVLog(@"update stats client=%s encoding=%d updates=%u rate=%.2f/s wall=%.2fms cpu=%.2fms "
+               @"rfb=%.2fMbps result=%d",
+              st->clientId8, cl->preferredEncoding, st->updateCount, st->updateCount / seconds,
+              (double)st->updateWallNs / NSEC_PER_MSEC / st->updateCount,
+              (double)st->updateCpuNs / NSEC_PER_MSEC / st->updateCount,
+              (double)st->updateBytes * 8.0 / seconds / 1e6, result);
+        st->statsStartNs = nowNs;
+        st->updateWallNs = st->updateCpuNs = st->updateBytes = 0;
+        st->updateCount = 0;
+    }
+}
+#endif
 
 static dispatch_queue_t gWheelQueue = nil; // serial queue for wheel gestures
 
@@ -3589,6 +2719,21 @@ static void tvCtlAddSubscriber(int fd) {
     int yes = 1;
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
 #endif
+    // Enable TCP keepalive to detect disappeared clients
+    int kaOn = 1;
+    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &kaOn, sizeof(kaOn));
+#ifdef TCP_KEEPALIVE
+    int kaIdle = 10;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &kaIdle, sizeof(kaIdle));
+#endif
+#ifdef TCP_KEEPINTVL
+    int kaIntvl = 3;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &kaIntvl, sizeof(kaIntvl));
+#endif
+#ifdef TCP_KEEPCNT
+    int kaCnt = 3;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &kaCnt, sizeof(kaCnt));
+#endif
     if (!gTvCtlSubscribers)
         gTvCtlSubscribers = [[NSMutableSet alloc] init];
     @synchronized(gTvCtlSubscribers) {
@@ -3617,10 +2762,20 @@ static void tvCtlBroadcastChanged(void) {
     @synchronized(gTvCtlSubscribers) {
         for (NSNumber *num in gTvCtlSubscribers) {
             int fd = [num intValue];
-            ssize_t n = send(fd, msg, len, 0);
-            if (n != (ssize_t)len) {
+            ssize_t n;
+        retry_send:
+            n = send(fd, msg, len, 0);
+            if (n == (ssize_t)len)
+                continue; // success
+            if (n < 0) {
+                if (errno == EINTR)
+                    goto retry_send;
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    continue; // buffer temporarily full — skip, not dead
+                // Truly dead (EPIPE, ECONNRESET, EBADF, etc.)
                 [dead addObject:num];
             }
+            // Partial write (0 <= n < len): best-effort for 8-byte msg, not fatal
         }
         if (dead.count) {
             for (NSNumber *num in dead) {
@@ -3705,7 +2860,7 @@ static NSData *tvCtlTSVForList(void) {
     return [out dataUsingEncoding:NSUTF8StringEncoding];
 }
 
-static BOOL tvDisconnectClientById(NSString *cid) {
+static BOOL tvDisconnectClientById(NSString *cid, BOOL addToBlocklist) {
     if (!cid || cid.length == 0 || !gScreen)
         return NO;
 
@@ -3714,19 +2869,42 @@ static BOOL tvDisconnectClientById(NSString *cid) {
     rfbClientIteratorPtr it = rfbGetClientIterator(gScreen);
     while ((cl = rfbClientIteratorNext(it))) {
         NSString *kid = tvGenerateClientId8(cl->sock);
-        if ([kid isEqualToString:cid]) {
-            found = YES;
-            rfbCloseClient(cl);
-            break;
+        if (![kid isEqualToString:cid]) {
+            continue;
         }
+
+        found = YES;
+
+        // Add to blocked hosts list if requested
+        if (addToBlocklist) {
+            do {
+                NSString *host = (cl && cl->host) ? [NSString stringWithUTF8String:cl->host] : @"";
+                if (!host.length) {
+                    break;
+                }
+
+                if (!gBlockedHosts) {
+                    gBlockedHosts = [[NSMutableSet alloc] init];
+                }
+
+                @synchronized(gBlockedHosts) {
+                    [gBlockedHosts addObject:host];
+                }
+
+                TVLog(@"Blocked host: %@", host);
+            } while (NO);
+        }
+
+        rfbCloseClient(cl);
+        break;
     }
 
     rfbReleaseClientIterator(it);
     return found;
 }
 
-static NSData *tvCtlTextForKick(NSString *cid) {
-    BOOL ok = tvDisconnectClientById(cid);
+static NSData *tvCtlTextForKick(NSString *cid, BOOL addToBlocklist) {
+    BOOL ok = tvDisconnectClientById(cid, addToBlocklist);
     const char *raw = ok ? "OK\n" : "NOT_FOUND\n";
     return [NSData dataWithBytes:raw length:strlen(raw)];
 }
@@ -3800,7 +2978,7 @@ void tvCtlHandleConnection(int cfd, struct sockaddr_in caddr) {
         tvCtlRemoveSubscriber(cfd, NO);
         const char *ok = "OK\n";
         resp = [NSData dataWithBytes:ok length:strlen(ok)];
-    } else if ([cmd hasPrefix:@"disconnect "] || [cmd hasPrefix:@"kick "]) {
+    } else if ([cmd hasPrefix:@"disconnect "] || [cmd hasPrefix:@"kick "] || [cmd hasPrefix:@"block "]) {
         NSArray *parts = [cmd componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         NSString *cid = parts.count >= 2 ? parts[1] : @"";
         if ([cid isEqualToString:@"ALL"]) {
@@ -3809,7 +2987,8 @@ void tvCtlHandleConnection(int cfd, struct sockaddr_in caddr) {
         } else if (cid.length != 8) {
             resp = [@"ERR InvalidID\n" dataUsingEncoding:NSUTF8StringEncoding];
         } else {
-            resp = tvCtlTextForKick(cid);
+            BOOL shouldBlock = [cmd hasPrefix:@"block "];
+            resp = tvCtlTextForKick(cid, shouldBlock);
         }
     } else {
         resp = [@"ERR Unknown\n" dataUsingEncoding:NSUTF8StringEncoding];
@@ -3860,6 +3039,13 @@ static void tvPublishUserSingleNotifs(void) {
 static void tvPublishClientConnectedNotif(NSString *host) {
     if (!gUserClientNotifsEnabled || isRepeaterEnabled() || !host || host.length == 0)
         return;
+
+    // Check if host is a loopback address
+    if ([host isEqualToString:@"127.0.0.1"] || [host isEqualToString:@"::1"] || [host isEqualToString:@"localhost"] ||
+        [host hasPrefix:@"127."] || [host hasPrefix:@"::ffff:127."]) {
+        TVLog(@"Skipping notification for loopback connection from %@", host);
+        return;
+    }
 
     BulletinManager *mgr = [BulletinManager sharedManager];
 
@@ -4333,31 +3519,41 @@ static void setupGeometry(void) {
 }
 
 #if !TARGET_IPHONE_SIMULATOR
-NS_INLINE UIInterfaceOrientation makeInterfaceOrientationRotate90(UIInterfaceOrientation o) {
+// Rotate an orientation by N quadrants (each quadrant = 90° CW)
+NS_INLINE UIInterfaceOrientation rotateOrientation(UIInterfaceOrientation o, int quads) {
+    // Map orientation to quadrant index: Portrait=0, LandLeft=1, UpsideDown=2, LandRight=3
+    int q;
     switch (o) {
     case UIInterfaceOrientationPortrait:
-        return UIInterfaceOrientationLandscapeLeft;
-    case UIInterfaceOrientationPortraitUpsideDown:
-        return UIInterfaceOrientationLandscapeRight;
-    case UIInterfaceOrientationLandscapeLeft:
-        return UIInterfaceOrientationPortraitUpsideDown;
-    case UIInterfaceOrientationLandscapeRight:
     default:
-        return UIInterfaceOrientationPortrait;
+        q = 0;
+        break;
+    case UIInterfaceOrientationLandscapeLeft:
+        q = 1;
+        break;
+    case UIInterfaceOrientationPortraitUpsideDown:
+        q = 2;
+        break;
+    case UIInterfaceOrientationLandscapeRight:
+        q = 3;
+        break;
     }
+    q = (q + quads) & 3;
+    static const UIInterfaceOrientation map[] = {
+        UIInterfaceOrientationPortrait,
+        UIInterfaceOrientationLandscapeLeft,
+        UIInterfaceOrientationPortraitUpsideDown,
+        UIInterfaceOrientationLandscapeRight,
+    };
+    return map[q];
 }
 #endif
 
 // Map UIInterfaceOrientation to rotation quadrant (clockwise degrees/90)
 NS_INLINE int rotationForOrientation(UIInterfaceOrientation o) {
 #if !TARGET_IPHONE_SIMULATOR
-    static BOOL sIsPad;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        sIsPad = ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad);
-    });
-    if (sIsPad) {
-        o = makeInterfaceOrientationRotate90(o);
+    if (gOrientationFixQuad != 0) {
+        o = rotateOrientation(o, gOrientationFixQuad);
     }
 #endif
     switch (o) {
@@ -4438,10 +3634,35 @@ static void setupRfbScreen(int argc, const char *argv[]) {
     gScreen->port = gPort;
     gScreen->ipv6port = gPort;
 
+    // Server bind addresses
+    in_addr_t v4Addr = INADDR_ANY;
+    struct in6_addr v6Addr;
+    memset(&v6Addr, 0, sizeof(v6Addr));
+
+    TVBindHostKind hostKind = tvClassifyBindHost(gBindHost, &v4Addr, &v6Addr);
+    if (hostKind == kTVBindHostKindIPv4) {
+        gScreen->listenInterface = v4Addr;
+    } else if (hostKind == kTVBindHostKindIPv6) {
+        char ifaceBuf[INET6_ADDRSTRLEN];
+        const char *iface = inet_ntop(AF_INET6, &v6Addr, ifaceBuf, sizeof(ifaceBuf));
+        if (!iface) {
+            TVPrintError("Failed to normalize IPv6 bind host");
+            exit(EXIT_FAILURE);
+        }
+        gScreen->listen6Interface = strdup(iface);
+    } else if (hostKind == kTVBindHostKindInvalid && gBindHost) {
+        TVPrintError("Invalid host address: %s", [gBindHost UTF8String]);
+        exit(EXIT_FAILURE);
+    } else {
+        // Do nothing; default ANY
+    }
+
     // Event handlers
     gScreen->newClientHook = newClientHook;
+#if DEBUG
     gScreen->displayHook = displayHook;
     gScreen->displayFinishedHook = displayFinishedHook;
+#endif
     gScreen->setDesktopSizeHook = setDesktopSizeHook;
 }
 
@@ -4452,6 +3673,19 @@ static void setupRfbEventHandlers(void) {
 }
 
 static rfbBool tvCheckPasswordByList(rfbClientPtr cl, const char *passwd, int len) {
+    // Check if client host is blocked
+    if (gBlockedHosts && cl && cl->host) {
+        NSString *host = [NSString stringWithUTF8String:cl->host];
+        BOOL isBlocked = NO;
+        @synchronized(gBlockedHosts) {
+            isBlocked = [gBlockedHosts containsObject:host];
+        }
+        if (isBlocked) {
+            TVLog(@"Rejected connection from blocked host: %@", host);
+            return FALSE; // Reject authentication
+        }
+    }
+
     rfbBool rc = rfbCheckPasswordByList(cl, passwd, len);
 
     TVClientState *st = tvGetClientState(cl);
@@ -4489,27 +3723,15 @@ static void setupRfbClassicAuthentication(void) {
         // Vector size = number of passwords + 1 for NULL terminator
         int vecCount = fullCount + viewCount + 1;
         gAuthPasswdVec = (char **)calloc((size_t)vecCount, sizeof(char *));
-        if (!gAuthPasswdVec) {
-            TVPrintError("Failed to allocate memory for password vector");
-            exit(EXIT_FAILURE);
-        }
 
         int idx = 0;
         if (fullCount) {
             gAuthPasswdStr = strdup(envPwd);
-            if (!gAuthPasswdStr) {
-                TVPrintError("Failed to allocate memory for full-access password");
-                exit(EXIT_FAILURE);
-            }
             gAuthPasswdVec[idx++] = gAuthPasswdStr;
         }
 
         if (viewCount) {
             gAuthViewOnlyPasswdStr = strdup(envViewPwd);
-            if (!gAuthViewOnlyPasswdStr) {
-                TVPrintError("Failed to allocate memory for view-only password");
-                exit(EXIT_FAILURE);
-            }
             gAuthPasswdVec[idx++] = gAuthViewOnlyPasswdStr;
         }
 
@@ -4582,13 +3804,9 @@ static void setupRfbHttpServer(void) {
 
     // SSL certificate and key (optional)
     if (gSslCertPath && *gSslCertPath) {
-        if (gScreen->sslcertfile)
-            free(gScreen->sslcertfile);
         gScreen->sslcertfile = strdup(gSslCertPath);
     }
     if (gSslKeyPath && *gSslKeyPath) {
-        if (gScreen->sslkeyfile)
-            free(gScreen->sslkeyfile);
         gScreen->sslkeyfile = strdup(gSslKeyPath);
     }
 }
@@ -4988,7 +4206,6 @@ int main(int argc, const char *argv[]) {
         prepareClipboardManager();
         prepareScreenCapturer();
 
-        initializeTilingOrReset();
         initializeAndRunRfbServer();
 
         installSignalHandlers();

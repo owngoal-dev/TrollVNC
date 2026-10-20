@@ -2,6 +2,9 @@
 "%@ rows not loaded" = "%@ rows not loaded";
 
 /* No comment provided by engineer. */
+"A CA private key already exists. Generating new keys will overwrite the existing ones. Are you sure you want to continue?" = "A CA private key already exists. Generating new keys will overwrite the existing ones. Are you sure you want to continue?";
+
+/* No comment provided by engineer. */
 "A new version %@ is available! You’re currently using v%@." = "A new version %1$@ is available! You’re currently using v%2$@.";
 
 /* No comment provided by engineer. */
@@ -20,13 +23,28 @@
 "Apply Changes" = "Apply Changes";
 
 /* No comment provided by engineer. */
+"Are you sure you want to reset all settings to their defaults?" = "Are you sure you want to reset all settings to their defaults?";
+
+/* No comment provided by engineer. */
 "Are you sure you want to restart the VNC service?" = "Are you sure you want to restart the VNC service?";
+
+/* No comment provided by engineer. */
+"Bind address must be a valid IPv4/IPv6 literal, or empty to listen on all interfaces." = "Bind address must be a valid IPv4/IPv6 literal, or empty to listen on all interfaces.";
+
+/* No comment provided by engineer. */
+"Block" = "Block";
+
+/* No comment provided by engineer. */
+"Block Client" = "Block Client";
 
 /* No comment provided by engineer. */
 "Cancel" = "Cancel";
 
 /* No comment provided by engineer. */
 "Cannot parse text with UTF-8 encoding: “%@”." = "Cannot parse text with UTF-8 encoding: “%@”.";
+
+/* No comment provided by engineer. */
+"Certificate Not Found" = "Certificate Not Found";
 
 /* No comment provided by engineer. */
 "Clients" = "Clients";
@@ -56,10 +74,28 @@
 "Disconnect All" = "Disconnect All";
 
 /* No comment provided by engineer. */
-"Disconnect Now" = "Disconnect Now";
+"Disconnect Client" = "Disconnect Client";
 
 /* No comment provided by engineer. */
 "Do you want to clear this log file “%@”?" = "Do you want to clear this log file “%@”?";
+
+/* No comment provided by engineer. */
+"Export Certificate…" = "Export Certificate…";
+
+/* No comment provided by engineer. */
+"Failed to generate self-signed CA certificate." = "Failed to generate self-signed CA certificate.";
+
+/* No comment provided by engineer. */
+"Failed to save generated keys: %@" = "Failed to save generated keys: %@";
+
+/* No comment provided by engineer. */
+"Generation Failed" = "Generation Failed";
+
+/* No comment provided by engineer. */
+"Generation Succeeded" = "Generation Succeeded";
+
+/* No comment provided by engineer. */
+"Invalid Bind Address" = "Invalid Bind Address";
 
 /* No comment provided by engineer. */
 "Invalid Port" = "Invalid Port";
@@ -80,10 +116,22 @@
 "OK" = "OK";
 
 /* No comment provided by engineer. */
+"Overwrite" = "Overwrite";
+
+/* No comment provided by engineer. */
+"Overwrite Existing Keys" = "Overwrite Existing Keys";
+
+/* No comment provided by engineer. */
 "Pause Auto Update" = "Pause Auto Update";
 
 /* No comment provided by engineer. */
 "Repeater" = "Repeater";
+
+/* No comment provided by engineer. */
+"Reset" = "Reset";
+
+/* No comment provided by engineer. */
+"Reset to Defaults" = "Reset to Defaults";
 
 /* No comment provided by engineer. */
 "Restart" = "Restart";
@@ -99,6 +147,9 @@
 
 /* No comment provided by engineer. */
 "The content of text file “%@” is empty." = "The content of text file “%@” is empty.";
+
+/* No comment provided by engineer. */
+"The self-signed CA certificate and private key have been successfully generated. You need to trust this certificate in your client browser or operating system. Restart the service to apply the changes." = "The self-signed CA certificate and private key have been successfully generated. You need to trust this certificate in your client browser or operating system. Restart the service to apply the changes.";
 
 /* trollvncserver */
 "There are %d active VNC clients." = "There are %d active VNC clients.";
@@ -126,3 +177,6 @@
 
 /* No comment provided by engineer. */
 "Viewer" = "Viewer";
+
+/* No comment provided by engineer. */
+"You need to generate a self-signed CA certificate first before exporting it." = "You need to generate a self-signed CA certificate first before exporting it.";

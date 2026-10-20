@@ -207,16 +207,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag_name }}
           name: Release ${{ steps.tag.outputs.tag_name }}
-          body: |
-            Automated build from release branch
-
-            This release contains packages built with:
-            - Default scheme
-            - Rootless scheme
-            - RootHide scheme
-            - Bootstrap (TrollStore)
-
-            Built on: ${{ github.sha }}
+          body_path: CHANGELOG.md
           files: release-packages/**/*
           draft: false
           prerelease: false

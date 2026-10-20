@@ -7,7 +7,7 @@
 	<key>items</key>
 	<array>
 
-		<!-- 0) General -->
+		<!-- General -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -29,7 +29,7 @@
 			<true/>
 		</dict>
 
-		<!-- 1) Desktop Name -->
+		<!-- Desktop Name -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -55,7 +55,31 @@
 			<string>alphabet</string>
 		</dict>
 
-		<!-- 2) TCP Port -->
+		<!-- Bind Address -->
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string></string>
+			<key>footerText</key>
+			<string>Bind to a specific local IP address. Leave empty to listen on all interfaces.</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>defaults</key>
+			<string>com.82flex.trollvnc</string>
+			<key>key</key>
+			<string>BindHost</string>
+			<key>label</key>
+			<string>Bind Address</string>
+			<key>placeholder</key>
+			<string>Leave empty for all interfaces</string>
+			<key>noAutoCorrect</key>
+			<true/>
+		</dict>
+
+		<!-- TCP Port -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -85,7 +109,7 @@
 			<string>5901</string>
 		</dict>
 
-		<!-- 3) Full-access Password -->
+		<!-- Full-access Password -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -107,7 +131,7 @@
 			<string>8 characters max.</string>
 		</dict>
 
-		<!-- 4) View-only Password -->
+		<!-- View-only Password -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -129,7 +153,7 @@
 			<string>8 characters max.</string>
 		</dict>
 
-		<!-- 5) Clipboard Sync -->
+		<!-- Clipboard Sync -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -151,7 +175,7 @@
 			<true/>
 		</dict>
 
-		<!-- 6) View-only (global) -->
+		<!-- View-only (global) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -173,7 +197,7 @@
 			<false/>
 		</dict>
 
-		<!-- 7.1) User Notifications -->
+		<!-- User Notifications -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -207,7 +231,7 @@
 			<true/>
 		</dict>
 
-		<!-- 7.2) Keep-Alive (sec) -->
+		<!-- Keep-Alive (sec) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -235,7 +259,7 @@
 			<string>%.0fs</string>
 		</dict>
 
-		<!-- 8) Output Scale -->
+		<!-- Output Scale -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -263,7 +287,7 @@
 			<string>%.2f</string>
 		</dict>
 
-		<!-- 9) Frame Rate -->
+		<!-- Frame Rate -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -287,14 +311,14 @@
 			<true/>
 		</dict>
 
-		<!-- 10) Sync Orientation -->
+		<!-- Sync Orientation -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
 			<string></string>
 			<key>footerText</key>
-			<string>Rotate the shared display to follow device orientation changes.</string>
+			<string>Rotate the shared display to follow device orientation changes. “Orientation Offset” applies a fixed rotation for iPad models with non-standard default orientations.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -308,8 +332,45 @@
 			<key>default</key>
 			<true/>
 		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSLinkListCell</string>
+			<key>defaults</key>
+			<string>com.82flex.trollvnc</string>
+			<key>key</key>
+			<string>OrientationPadFix</string>
+			<key>label</key>
+			<string>Orientation Offset</string>
+			<key>detail</key>
+			<string>TVNCListItemsController</string>
+			<key>default</key>
+			<integer>0</integer>
+			<key>shortTitles</key>
+			<array>
+				<string>0°</string>
+				<string>90°</string>
+				<string>180°</string>
+				<string>270°</string>
+			</array>
+			<key>validTitles</key>
+			<array>
+				<string>Disabled</string>
+				<string>90° Clockwise</string>
+				<string>180°</string>
+				<string>270° Clockwise</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<integer>0</integer>
+				<integer>1</integer>
+				<integer>2</integer>
+				<integer>3</integer>
+			</array>
+			<key>staticTextMessage</key>
+			<string>Apply a fixed rotation offset to the captured display. Useful for iPad models with non-standard default orientations.</string>
+		</dict>
 
-		<!-- 11) Natural Scroll Direction -->
+		<!-- Natural Scroll Direction -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -331,7 +392,7 @@
 			<false/>
 		</dict>
 
-		<!-- 12) Modifier Mapping -->
+		<!-- Modifier Mapping -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -372,7 +433,7 @@
 			<string>Standard: Alt as Option, Super as Command. On macOS clients, Alt as Command (altcmd) is recommended.</string>
 		</dict>
 
-		<!-- 13) Assistive Touch -->
+		<!-- Assistive Touch -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -394,7 +455,7 @@
 			<false/>
 		</dict>
 
-		<!-- 14) Server-Side Cursor -->
+		<!-- Server-Side Cursor -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -416,169 +477,7 @@
 			<false/>
 		</dict>
 
-		<!-- 15) Defer Window (sec) -->
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Defer Window (sec)</string>
-			<key>footerText</key>
-			<string>Coalesces updates to reduce overhead. Higher values add latency; typical range 0.005–0.030.</string>
-		</dict>
-		<dict>
-			<key>cellClass</key>
-			<string>TVNCSliderCell</string>
-			<key>defaults</key>
-			<string>com.82flex.trollvnc</string>
-			<key>key</key>
-			<string>DeferWindowSec</string>
-			<key>default</key>
-			<real>0.015</real>
-			<key>min</key>
-			<real>0.0</real>
-			<key>max</key>
-			<real>0.5</real>
-			<key>showValue</key>
-			<true/>
-			<key>format</key>
-			<string>%.3fs</string>
-		</dict>
-
-		<!-- 16) Max In-flight -->
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Max In-flight</string>
-			<key>footerText</key>
-			<string>Max concurrent client encodes before dropping new frames. 0 = never drop (may increase latency under load).</string>
-		</dict>
-		<dict>
-			<key>cellClass</key>
-			<string>TVNCSliderCell</string>
-			<key>defaults</key>
-			<string>com.82flex.trollvnc</string>
-			<key>key</key>
-			<string>MaxInflight</string>
-			<key>default</key>
-			<integer>2</integer>
-			<key>min</key>
-			<real>0</real>
-			<key>max</key>
-			<real>8</real>
-			<key>isSegmented</key>
-			<true/>
-			<key>segmentCount</key>
-			<integer>8</integer>
-			<key>showValue</key>
-			<true/>
-		</dict>
-
-		<!-- 17) Tile Size (px) -->
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Tile Size (px)</string>
-			<key>footerText</key>
-			<string>Dirty-detection tile size in pixels. Smaller captures finer changes but increases CPU cost.</string>
-		</dict>
-		<dict>
-			<key>cellClass</key>
-			<string>TVNCSliderCell</string>
-			<key>defaults</key>
-			<string>com.82flex.trollvnc</string>
-			<key>key</key>
-			<string>TileSize</string>
-			<key>default</key>
-			<integer>32</integer>
-			<key>min</key>
-			<real>8</real>
-			<key>max</key>
-			<real>128</real>
-			<key>showValue</key>
-			<true/>
-			<key>format</key>
-			<string>%.0fpx</string>
-		</dict>
-
-		<!-- 18) Fullscreen Threshold (%) -->
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Fullscreen Threshold (%)</string>
-			<key>footerText</key>
-			<string>If changed tiles exceed this percent, send a full-screen update. 0 disables dirty detection (always fullscreen).</string>
-		</dict>
-		<dict>
-			<key>cellClass</key>
-			<string>TVNCSliderCell</string>
-			<key>defaults</key>
-			<string>com.82flex.trollvnc</string>
-			<key>key</key>
-			<string>FullscreenThresholdPercent</string>
-			<key>default</key>
-			<integer>0</integer>
-			<key>min</key>
-			<real>0</real>
-			<key>max</key>
-			<real>100</real>
-			<key>showValue</key>
-			<true/>
-			<key>format</key>
-			<string>%.0f%%</string>
-		</dict>
-
-		<!-- 19) Max Rects -->
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Max Rects</string>
-			<key>footerText</key>
-			<string>When dirty rectangles exceed this count, collapse to a bounding box. Too high increases protocol overhead.</string>
-		</dict>
-		<dict>
-			<key>cellClass</key>
-			<string>TVNCSliderCell</string>
-			<key>defaults</key>
-			<string>com.82flex.trollvnc</string>
-			<key>key</key>
-			<string>MaxRects</string>
-			<key>default</key>
-			<integer>256</integer>
-			<key>min</key>
-			<real>1</real>
-			<key>max</key>
-			<real>4096</real>
-			<key>showValue</key>
-			<true/>
-		</dict>
-
-		<!-- 20) Non-blocking Swap -->
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string></string>
-			<key>footerText</key>
-			<string>Attempts to avoid blocking when swapping buffers; may cause tearing. Can reduce stalls when encoders are slow.</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>defaults</key>
-			<string>com.82flex.trollvnc</string>
-			<key>key</key>
-			<string>AsyncSwap</string>
-			<key>label</key>
-			<string>Non-blocking Swap</string>
-			<key>default</key>
-			<false/>
-		</dict>
-
-		<!-- 21.1) Wheel Step (px) -->
+		<!-- Wheel Step (px) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -606,7 +505,7 @@
 			<string>%.0fpx</string>
 		</dict>
 
-		<!-- 21.2) Wheel Tuning (advanced) -->
+		<!-- Wheel Tuning (advanced) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -630,7 +529,7 @@
 			<true/>
 		</dict>
 
-		<!-- 22) HTTP Port (advanced) -->
+		<!-- HTTP Port (advanced) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -658,7 +557,7 @@
 			<string>0</string>
 		</dict>
 
- 		<!-- 23) HTTP Document Root (advanced) -->
+ 		<!-- HTTP Document Root (advanced) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -682,7 +581,7 @@
 			<true/>
 		</dict>
 
-		<!-- 24) SSL Certificate File (advanced) -->
+		<!-- SSL Certificate File (advanced) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -706,7 +605,7 @@
 			<true/>
 		</dict>
 
-		<!-- 25) SSL Private Key File (advanced) -->
+		<!-- SSL Private Key File (advanced) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -729,8 +628,16 @@
 			<key>noAutoCorrect</key>
 			<true/>
 		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>Generate CA…</string>
+			<key>action</key>
+			<string>generateKeys</string>
+		</dict>
 
-		<!-- 26.1) Reverse Connection -->
+		<!-- Reverse Connection -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -806,7 +713,7 @@
 			<string>0</string>
 		</dict>
 
-		<!-- 26.2) Bonjour / Auto-Discovery -->
+		<!-- Bonjour / Auto-Discovery -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -828,7 +735,7 @@
 			<true/>
 		</dict>
 
-		<!-- 27) Log Keyboard Events (debug) -->
+		<!-- Log Keyboard Events (debug) -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -850,7 +757,27 @@
 			<false/>
 		</dict>
 
-		<!-- Source code section -->
+		<!-- Quick Action -->
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string></string>
+			<key>footerText</key>
+			<string>To unblock previously blocked clients, restart the VNC service. The temporary block list is cleared on service restart.</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>Reset to Defaults</string>
+			<key>action</key>
+			<string>resetDefaults</string>
+			<key>isDestructive</key>
+			<true/>
+		</dict>
+
+		<!-- Source Code -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>

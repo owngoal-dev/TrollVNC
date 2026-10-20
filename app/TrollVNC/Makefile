@@ -14,4 +14,10 @@ else
 TrollVNC_XCODEFLAGS += GCC_PREPROCESSOR_DEFINITIONS="THEBOOTSTRAP=1 THEOS_PACKAGE_SCHEME=\\\"bootstrap\\\" PACKAGE_VERSION=\\\"$(PACKAGE_VERSION)\\\"" THEOS="$(THEOS)"
 endif
 
+ifeq ($(THEOS_DEVICE_SIMULATOR),1)
+TrollVNC_CODESIGN_FLAGS += -f -s - --entitlements TrollVNC/TrollVNC.entitlements
+else
+TrollVNC_CODESIGN_FLAGS += -STrollVNC/TrollVNC.entitlements
+endif
+
 include $(THEOS_MAKE_PATH)/xcodeproj.mk

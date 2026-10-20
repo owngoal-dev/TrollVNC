@@ -34,14 +34,7 @@
         return nil;
     }
 
-    // Read custom format string from specifier
-    _formatString = [specifier propertyForKey:@"format"];
-
-    if (!_formatString || ![_formatString isKindOfClass:[NSString class]]) {
-        _formatString = @"%.0f"; // Default format
-    }
-
-    // Read custom value label width (default 60)
+    // Read custom value label width (default 50)
     NSNumber *labelWidthNum = [specifier propertyForKey:@"valueLabelWidth"];
 
     if (labelWidthNum && [labelWidthNum isKindOfClass:[NSNumber class]]) {
@@ -53,51 +46,6 @@
     // Create slider
     _slider = [[UISlider alloc] init];
     _slider.translatesAutoresizingMaskIntoConstraints = NO;
-
-    // Read min/max values
-    NSNumber *minValue = [specifier propertyForKey:@"min"];
-    NSNumber *maxValue = [specifier propertyForKey:@"max"];
-
-    if (minValue) {
-        _slider.minimumValue = [minValue floatValue];
-    }
-
-    if (maxValue) {
-        _slider.maximumValue = [maxValue floatValue];
-    }
-
-    // Read default value
-    NSNumber *defaultValue = [specifier propertyForKey:@"default"];
-
-    if (defaultValue) {
-        _slider.value = [defaultValue floatValue];
-    }
-
-    // Read isContinuous
-    NSNumber *isContinuous = [specifier propertyForKey:@"isContinuous"];
-
-    if (isContinuous) {
-        _slider.continuous = [isContinuous boolValue];
-    } else {
-        _slider.continuous = YES; // Default to continuous
-    }
-
-    // Handle segmented slider (isSegmented + segmentCount)
-    NSNumber *isSegmented = [specifier propertyForKey:@"isSegmented"];
-
-    if (isSegmented && [isSegmented boolValue]) {
-        NSNumber *segmentCount = [specifier propertyForKey:@"segmentCount"];
-
-        if (segmentCount && [segmentCount integerValue] > 0) {
-            NSInteger segments = [segmentCount integerValue];
-            // For segmented slider, quantize values
-            CGFloat range = _slider.maximumValue - _slider.minimumValue;
-            CGFloat step = range / (CGFloat)segments;
-            // We'll handle snapping in the value changed handler
-            (void)step; // suppress unused variable warning
-        }
-    }
-
     [_slider addTarget:self action:@selector(sliderValueChanged:) forControlEvents:UIControlEventValueChanged];
     [self.contentView addSubview:_slider];
 
@@ -113,9 +61,10 @@
         _valueLabel.numberOfLines = 1;
         _valueLabel.lineBreakMode = NSLineBreakByClipping;
         [self.contentView addSubview:_valueLabel];
-
-        [self updateValueLabel];
     }
+
+    // Sync slider properties from specifier
+    [self _syncWithSpecifier:specifier];
 
     // Setup constraints
     [self setupConstraints];
@@ -152,6 +101,51 @@
     [NSLayoutConstraint activateConstraints:@[
         [self.contentView.heightAnchor constraintGreaterThanOrEqualToConstant:44.0],
     ]];
+}
+
+- (void)_syncWithSpecifier:(PSSpecifier *)specifier {
+    if (!specifier) {
+        return;
+    }
+
+    _formatString = [specifier propertyForKey:@"format"];
+
+    if (!_formatString || ![_formatString isKindOfClass:[NSString class]]) {
+        _formatString = @"%.0f";
+    }
+
+    NSNumber *minValue = [specifier propertyForKey:@"min"];
+    NSNumber *maxValue = [specifier propertyForKey:@"max"];
+
+    if (minValue) {
+        _slider.minimumValue = [minValue floatValue];
+    }
+
+    if (maxValue) {
+        _slider.maximumValue = [maxValue floatValue];
+    }
+
+    NSNumber *isContinuous = [specifier propertyForKey:@"isContinuous"];
+    _slider.continuous = isContinuous ? [isContinuous boolValue] : YES;
+
+    id value = [specifier performGetter];
+
+    if ([value isKindOfClass:[NSNumber class]]) {
+        _slider.value = [value floatValue];
+    } else {
+        NSNumber *defaultValue = [specifier propertyForKey:@"default"];
+
+        if (defaultValue) {
+            _slider.value = [defaultValue floatValue];
+        }
+    }
+
+    [self updateValueLabel];
+}
+
+- (void)setSpecifier:(PSSpecifier *)specifier {
+    [super setSpecifier:specifier];
+    [self _syncWithSpecifier:specifier];
 }
 
 - (void)updateValueLabel {
@@ -191,21 +185,12 @@
 
 - (void)refreshCellContentsWithSpecifier:(PSSpecifier *)specifier {
     [super refreshCellContentsWithSpecifier:specifier];
-
-    // Read the current value from the specifier's performGetter
-    if (specifier) {
-        id value = [specifier performGetter];
-
-        if ([value isKindOfClass:[NSNumber class]]) {
-            _slider.value = [value floatValue];
-            [self updateValueLabel];
-        }
-    }
+    [self _syncWithSpecifier:specifier];
 }
 
 - (void)prepareForReuse {
     [super prepareForReuse];
-    _slider.value = 0.0;
+    _slider.value = _slider.minimumValue;
     [self updateValueLabel];
 }
 

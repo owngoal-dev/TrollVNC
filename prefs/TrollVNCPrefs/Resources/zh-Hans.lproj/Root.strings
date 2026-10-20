@@ -6,7 +6,13 @@
 
 "0.1–1.0. Lower scale reduces bandwidth/CPU; 1.0 is pixel-perfect. Balance quality, latency and battery." = "0.1–1.0。缩小可降低带宽/CPU 占用；1.0 保持像素级清晰。请在画质、延迟与电量之间取得平衡。";
 
+"180°" = "180°";
+
+"270° Clockwise" = "逆时针 90°";
+
 "8 characters max." = "最多 8 个字符";
+
+"90° Clockwise" = "顺时针 90°";
 
 "A repeater ID is required for the “UltraVNC Repeater” mode." = "“UltraVNC 中继器” 模式需要一个中继器 ID。";
 
@@ -20,11 +26,12 @@
 
 "Alt→Cmd" = "Alt→Cmd";
 
+"Apply a fixed rotation offset to the captured display. Useful for iPad models with non-standard default orientations." = "对捕获的显示画面施加固定旋转偏移。适用于默认方向不常见的 iPad 型号。";
+
 "Are you sure you want to respring your device?" = "你确定要注销设备吗？";
 
 "Assistive Touch Auto-Activation" = "Assistive Touch 自动激活";
 
-"Attempts to avoid blocking when swapping buffers; may cause tearing. Can reduce stalls when encoders are slow." = "尝试在交换缓冲时避免阻塞；可能导致撕裂。在编码器较慢时可减少停顿。";
 
 "Authentication" = "认证";
 
@@ -32,13 +39,16 @@
 
 "Balance quality, latency and battery." = "平衡画质、延迟与电量消耗。";
 
+"Bind Address" = "绑定地址";
+
+"Bind to a specific local IP address. Leave empty to listen on all interfaces." = "绑定到指定本地 IP 地址，可选。留空则监听所有网卡。";
+
 "Cancel" = "取消";
 
 "Choose how remote Alt/Super map to iOS Option/Command." = "选择远端 Alt/Super 映射为 iOS 的 Option/Command。";
 
 "Clipboard Sync" = "剪贴板同步";
 
-"Coalesces updates to reduce overhead. Higher values add latency; typical range 0.005–0.030." = "合并刷新以降低开销。数值越大延迟越高；一般范围 0.005–0.030。";
 
 "Configure basic server options." = "配置基础服务器选项。";
 
@@ -48,13 +58,13 @@
 
 "Cursor & Orientation" = "光标与方向";
 
-"Defer Window (sec)" = "合并窗口（秒）";
 
 "Desktop Name" = "桌面名称";
 
 "Dirty Detection" = "脏区检测";
 
-"Dirty-detection tile size in pixels. Smaller captures finer changes but increases CPU cost." = "脏区检测的瓦片大小（像素）。越小越精细，但更耗 CPU。";
+
+"Disabled" = "关闭";
 
 "Display & Performance" = "显示与性能";
 
@@ -66,13 +76,16 @@
 
 "Establish a reverse connection to a listening VNC viewer or repeater without opening a server port. This is useful for bypassing firewalls or NAT." = "建立到监听的 VNC 查看器或中继器的反向连接，而无需打开服务器端口。这对于绕过防火墙或 NAT 非常有用。";
 
+"Export Certificate…" = "导出证书…";
+
 "Frame Rate" = "帧率";
 
 "Full-access Password" = "完全访问密码";
 
-"Fullscreen Threshold (%)" = "全屏阈值（%）";
 
 "General" = "通用";
+
+"Generate CA…" = "生成根证书…";
 
 "HTTP / WebSockets" = "HTTP / WebSockets";
 
@@ -80,13 +93,14 @@
 
 "HTTP Port" = "HTTP 端口";
 
-"If changed tiles exceed this percent, send a full-screen update. 0 disables dirty detection (always fullscreen)." = "当变化瓦片比例超过该百分比时，发送全屏更新。设为 0 关闭脏区检测（总是全屏）。";
 
 "Ignore all input from clients. Overrides per-client view-only password if set." = "忽略来自客户端的所有输入。如设置了仅查看密码，则此开关全局覆盖它。";
 
 "Keep-Alive (sec)" = "保活（秒）";
 
 "Keeps device awake only while at least one client is connected. 0 disables. Range 15–300 sec; shorter intervals may increase battery usage." = "仅在至少有一个客户端连接时保持设备唤醒。0 表示禁用。范围 15–300 秒。";
+
+"Leave empty for all interfaces" = "留空则监听所有网卡";
 
 "Log Keyboard Events" = "记录键盘事件";
 
@@ -96,11 +110,8 @@
 
 "Match iOS natural scroll direction for mouse wheel/trackpad; disable for traditional desktop direction." = "使鼠标滚轮/触控板滚动方向与 iOS 的 “自然滚动” 保持一致；关闭则使用传统桌面方向。";
 
-"Max concurrent client encodes before dropping new frames. 0 = never drop (may increase latency under load)." = "丢弃新帧前允许的最大并发编码数。0 表示不丢弃（在高负载下可能增加延迟）。";
 
-"Max In-flight" = "最大并发帧";
 
-"Max Rects" = "最大矩形数";
 
 "Mode" = "模式";
 
@@ -110,9 +121,10 @@
 
 "Natural Scroll Direction" = "自然滚动方向";
 
-"Non-blocking Swap" = "非阻塞交换";
 
 "None" = "无";
+
+"Orientation Offset" = "方向校正";
 
 "Output Scale" = "输出缩放";
 
@@ -130,13 +142,15 @@
 
 "Repeater ID" = "中继器 ID";
 
+"Reset to Defaults" = "还原为默认值";
+
 "Respring" = "注销";
 
 "Respring to Apply Changes" = "注销以应用更改";
 
 "Reverse Connection" = "反向连接";
 
-"Rotate the shared display to follow device orientation changes." = "跟随设备方向变化旋转共享画面。";
+"Rotate the shared display to follow device orientation changes. “Orientation Offset” applies a fixed rotation for iPad models with non-standard default orientations." = "跟随设备方向变化旋转共享画面。“方向校正” 可对某些默认方向不常见的 iPad 型号施加固定旋转补偿。";
 
 "Scroll & Input" = "滚动与输入";
 
@@ -186,7 +200,8 @@
 
 "This project is licensed under GPLv2. Author: Lessica." = "本项目使用 GPLv2 许可证发布。作者：Lessica。";
 
-"Tile Size (px)" = "瓦片大小（像素）";
+
+"To unblock previously blocked clients, restart the VNC service. The temporary block list is cleared on service restart." = "要解封之前被封禁的客户端，请重启 VNC 服务。临时封禁列表会在服务重启时清空。";
 
 "TrollVNC" = "TrollVNC";
 
@@ -207,5 +222,3 @@
 "Wheel Step (px)" = "滚轮步进（像素）";
 
 "Wheel Tuning" = "滚轮调校";
-
-"When dirty rectangles exceed this count, collapse to a bounding box. Too high increases protocol overhead." = "当脏矩形数量超过此值时，合并为外接矩形。过高会增加协议开销。";

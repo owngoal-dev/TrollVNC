@@ -16,92 +16,62 @@
 */
 
 #import <Foundation/Foundation.h>
+#import <Network/Network.h>
 #import <Preferences/PSSpecifier.h>
+#import <SystemConfiguration/SystemConfiguration.h>
 #import <UIKit/UIKit.h>
 #import <arpa/inet.h>
+#import <dlfcn.h>
 #import <ifaddrs.h>
 #import <net/if.h>
+#import <notify.h>
 #import <signal.h>
 #import <stdlib.h>
 #import <string.h>
-#import <sys/sysctl.h>
 
 #import "StripedTextTableViewController.h"
 #import "TVNCClientListController.h"
 #import "TVNCRootListController.h"
+#import "TVNCUtil.h"
+#import "ZTSelfSignedCertificate.h"
 
 #ifdef THEBOOTSTRAP
 #import "GitHubReleaseUpdater.h"
 #endif
 
-// Minimal process enumeration to restart VNC service
-NS_INLINE void TVNCEnumerateProcesses(void (^enumerator)(pid_t pid, NSString *executablePath, BOOL *stop)) {
-    static int kMaximumArgumentSize = 0;
+NS_INLINE NSString *GetDefaultRouteInterface(void) {
+    static SCDynamicStoreRef (*_SCDynamicStoreCreate)(CFAllocatorRef, CFStringRef, SCDynamicStoreCallBack,
+                                                      SCDynamicStoreContext *) = NULL;
+    static CFPropertyListRef (*_SCDynamicStoreCopyValue)(SCDynamicStoreRef, CFStringRef) = NULL;
+
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        size_t valSize = sizeof(kMaximumArgumentSize);
-        if (sysctl((int[]){CTL_KERN, KERN_ARGMAX}, 2, &kMaximumArgumentSize, &valSize, NULL, 0) < 0) {
-            kMaximumArgumentSize = 4096;
+        void *handle =
+            dlopen("/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration", RTLD_LAZY);
+        if (handle) {
+            _SCDynamicStoreCreate =
+                (SCDynamicStoreRef (*)(CFAllocatorRef, CFStringRef, SCDynamicStoreCallBack,
+                                       SCDynamicStoreContext *))dlsym(handle, "SCDynamicStoreCreate");
+            _SCDynamicStoreCopyValue =
+                (CFPropertyListRef (*)(SCDynamicStoreRef, CFStringRef))dlsym(handle, "SCDynamicStoreCopyValue");
         }
     });
 
-    size_t procInfoLength = 0;
-    if (sysctl((int[]){CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0}, 4, NULL, &procInfoLength, NULL, 0) < 0) {
-        return;
+    if (!_SCDynamicStoreCreate || !_SCDynamicStoreCopyValue) {
+        return nil;
     }
 
-    struct kinfo_proc *procInfo = (struct kinfo_proc *)calloc(1, procInfoLength + 1);
-    if (!procInfo)
-        return;
-    if (sysctl((int[]){CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0}, 4, procInfo, &procInfoLength, NULL, 0) < 0) {
-        free(procInfo);
-        return;
-    }
+    SCDynamicStoreRef store = _SCDynamicStoreCreate(NULL, CFSTR("RouteInfo"), NULL, NULL);
+    if (!store)
+        return nil;
 
-    char *argBuffer = (char *)calloc(1, (size_t)kMaximumArgumentSize + 1);
-    if (!argBuffer) {
-        free(procInfo);
-        return;
-    }
+    NSDictionary *dict =
+        (NSDictionary *)CFBridgingRelease(_SCDynamicStoreCopyValue(store, CFSTR("State:/Network/Global/IPv4")));
+    if (!dict[@"PrimaryInterface"])
+        dict = (NSDictionary *)CFBridgingRelease(_SCDynamicStoreCopyValue(store, CFSTR("State:/Network/Global/IPv6")));
+    CFRelease(store);
 
-    int procInfoCnt = (int)(procInfoLength / sizeof(struct kinfo_proc));
-    for (int i = 0; i < procInfoCnt; i++) {
-        pid_t pid = procInfo[i].kp_proc.p_pid;
-        if (pid <= 1)
-            continue;
-
-        size_t argSize = (size_t)kMaximumArgumentSize;
-        if (sysctl((int[]){CTL_KERN, KERN_PROCARGS2, pid, 0}, 4, NULL, &argSize, NULL, 0) < 0)
-            continue;
-        memset(argBuffer, 0, argSize + 1);
-        if (sysctl((int[]){CTL_KERN, KERN_PROCARGS2, pid, 0}, 4, argBuffer, &argSize, NULL, 0) < 0)
-            continue;
-
-        BOOL stop = NO;
-        @autoreleasepool {
-            NSString *exePath = [NSString stringWithUTF8String:(argBuffer + sizeof(int))] ?: @"";
-            enumerator(pid, exePath, &stop);
-        }
-        if (stop)
-            break;
-    }
-
-    free(argBuffer);
-    free(procInfo);
-}
-
-NS_INLINE void TVNCRestartVNCService(void) {
-    // Try to terminate trollvncserver; launchd should respawn it if configured.
-    TVNCEnumerateProcesses(^(pid_t pid, NSString *executablePath, BOOL *stop) {
-        if ([executablePath.lastPathComponent isEqualToString:@"trollvncserver"]) {
-            int rc = kill(pid, SIGTERM);
-            if (rc == 0) {
-#ifdef THEBOOTSTRAP
-                [UIApplication.sharedApplication setApplicationIconBadgeNumber:0];
-#endif
-            }
-        }
-    });
+    return dict[@"PrimaryInterface"];
 }
 
 // Resolve current IPv4/IPv6 address of interface en0 (Wi‑Fi). Prefer IPv4 if available.
@@ -110,12 +80,15 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
     if (getifaddrs(&ifaList) != 0 || !ifaList)
         return nil;
 
+    NSString *defaultRouteInterface = GetDefaultRouteInterface();
+    const char *defaultRouteIfName = defaultRouteInterface ? [defaultRouteInterface UTF8String] : "en0";
+
     NSString *ipv4 = nil;
     NSString *ipv6 = nil;
     for (struct ifaddrs *ifa = ifaList; ifa; ifa = ifa->ifa_next) {
         if (!ifa->ifa_addr || !ifa->ifa_name)
             continue;
-        if (strcmp(ifa->ifa_name, "en0") != 0)
+        if (strcmp(ifa->ifa_name, defaultRouteIfName) != 0)
             continue;
         if (!(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK))
             continue;
@@ -149,14 +122,56 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
     return ipv4 ?: ipv6; // prefer IPv4
 }
 
+NS_INLINE BOOL TVNCIsValidBindHostLiteral(NSString *host) {
+    if (!host)
+        return YES;
+
+    NSString *trimmed = [host stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0)
+        return YES; // Empty means bind any interface
+
+    const char *cstr = trimmed.UTF8String;
+    if (!cstr || cstr[0] == '\0')
+        return YES;
+
+    struct in_addr v4;
+    if (inet_pton(AF_INET, cstr, &v4) == 1)
+        return YES;
+
+    // Allow optional IPv6 scope suffix (e.g. fe80::1%en0)
+    char addrBuf[INET6_ADDRSTRLEN + 1] = {0};
+    const char *pct = strchr(cstr, '%');
+    size_t copyLen = pct ? (size_t)(pct - cstr) : strlen(cstr);
+    if (copyLen >= sizeof(addrBuf))
+        copyLen = sizeof(addrBuf) - 1;
+    memcpy(addrBuf, cstr, copyLen);
+    addrBuf[copyLen] = '\0';
+
+    struct in6_addr v6;
+    return inet_pton(AF_INET6, addrBuf, &v6) == 1;
+}
+
 @interface TVNCRootListController ()
+
+@property(nonatomic, strong) nw_path_monitor_t monitor;
 
 @property(nonatomic, strong) UINotificationFeedbackGenerator *notificationGenerator;
 @property(nonatomic, strong) UIColor *primaryColor;
+@property(nonatomic, copy) NSString *jbrootPath;
+
+@property(nonatomic, strong) PSSpecifier *firstGroupSpecifier;
+@property(nonatomic, strong) PSSpecifier *enabledSpecifier;
+@property(nonatomic, strong) PSSpecifier *certSpecifier;
+@property(nonatomic, strong) PSSpecifier *keysSpecifier;
+@property(nonatomic, strong) PSSpecifier *exportCertSpecifier;
+
+@property(nonatomic, copy) NSString *defaultFooterText;
 
 @end
 
-@implementation TVNCRootListController
+@implementation TVNCRootListController {
+    int _notifyToken;
+}
 
 #ifdef THEBOOTSTRAP
 @synthesize bundle = _bundle;
@@ -212,27 +227,39 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
         }
 
         PSSpecifier *firstGroup = [specifiers firstObject];
-        NSString *packageScheme = MYNSSTRINGIFY(THEOS_PACKAGE_SCHEME);
-        if (!packageScheme.length) {
-            packageScheme = @"legacy";
+        _firstGroupSpecifier = firstGroup;
+
+        for (PSSpecifier *specifier in specifiers) {
+            NSString *actionName = [specifier propertyForKey:@"action"];
+            if ([actionName isEqualToString:@"exportCertificate"]) {
+                _exportCertSpecifier = specifier;
+                break;
+            }
+
+            NSString *keyName = [specifier propertyForKey:@"key"];
+            if ([keyName isEqualToString:@"SslCertFile"]) {
+                _certSpecifier = specifier;
+            } else if ([keyName isEqualToString:@"SslKeyFile"]) {
+                _keysSpecifier = specifier;
+            } else if ([keyName isEqualToString:@"Enabled"]) {
+                _enabledSpecifier = specifier;
+            }
         }
 
-        NSString *versionString;
-#ifdef THEBOOTSTRAP
-        versionString = [[GitHubReleaseUpdater shared] currentVersion];
-#else
-        versionString = @PACKAGE_VERSION;
-#endif
-
-        [firstGroup setProperty:[NSString stringWithFormat:NSLocalizedStringFromTableInBundle(
-                                                               @"TrollVNC (%@) v%@", @"Localizable", self.bundle, nil),
-                                                           packageScheme, versionString]
-                         forKey:@"footerText"];
-
         _specifiers = specifiers;
+        [self updateFirstGroupAndReload:NO];
     }
 
     return _specifiers;
+}
+
+- (void)dealloc {
+    if (_monitor) {
+        nw_path_monitor_cancel(_monitor);
+    }
+    if (_notifyToken) {
+        notify_cancel(_notifyToken);
+    }
 }
 
 // Add Apply button in nav bar
@@ -289,6 +316,25 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
             clientsItem,
         ];
     }
+
+    self.monitor = nw_path_monitor_create();
+    nw_path_monitor_set_queue(self.monitor, dispatch_get_main_queue());
+
+    __weak typeof(self) weakSelf = self;
+    nw_path_monitor_set_update_handler(self.monitor, ^(nw_path_t _Nonnull path) {
+        [weakSelf updateFirstGroupAndReload:YES];
+    });
+    nw_path_monitor_start(self.monitor);
+
+    notify_register_dispatch(TVNC_NOTIFY_PREFS_CHANGED, &_notifyToken, dispatch_get_main_queue(), ^(int token) {
+        [weakSelf reloadEnabledSpecifier];
+    });
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+
+    [self updateFirstGroupAndReload:YES];
 }
 
 - (void)showClients {
@@ -300,6 +346,90 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
     [self.navigationController presentViewController:navController animated:YES completion:nil];
 }
 
+- (NSString *)defaultFooterText {
+    if (!_defaultFooterText) {
+        NSString *packageScheme = MYNSSTRINGIFY(THEOS_PACKAGE_SCHEME);
+        if (!packageScheme.length) {
+            packageScheme = @"legacy";
+        }
+
+        NSString *versionString;
+#ifdef THEBOOTSTRAP
+        versionString = [[GitHubReleaseUpdater shared] currentVersion];
+#else
+        versionString = @PACKAGE_VERSION;
+#endif
+
+        NSString *footerText = [NSString
+            stringWithFormat:NSLocalizedStringFromTableInBundle(@"TrollVNC (%@) v%@", @"Localizable", self.bundle, nil),
+                             packageScheme, versionString];
+        _defaultFooterText = footerText;
+    }
+    return _defaultFooterText;
+}
+
+- (NSString *)currentStatusText {
+    PSSpecifier *revModeSpec = nil;
+    for (PSSpecifier *sp in _specifiers) {
+        NSString *key = [sp propertyForKey:@"key"];
+        if (!key)
+            continue;
+        if (!revModeSpec && [key isEqualToString:@"ReverseMode"]) {
+            revModeSpec = sp;
+            break;
+        }
+    }
+
+    NSString *revMode = @"none";
+    id revModeVal = revModeSpec ? [self readPreferenceValue:revModeSpec] : nil;
+    if ([revModeVal isKindOfClass:[NSString class]]) {
+        revMode = (NSString *)revModeVal;
+    }
+
+    NSString *text;
+    BOOL isRevModeOn = [revMode caseInsensitiveCompare:@"none"] != NSOrderedSame;
+    if (isRevModeOn) {
+        NSString *modeFormat =
+            NSLocalizedStringFromTableInBundle(@"Reverse Connection: %@", @"Localizable", self.bundle, nil);
+        if ([revMode caseInsensitiveCompare:@"repeater"] == NSOrderedSame) {
+            revMode = NSLocalizedStringFromTableInBundle(@"Repeater", @"Localizable", self.bundle, nil);
+        } else {
+            revMode = NSLocalizedStringFromTableInBundle(@"Viewer", @"Localizable", self.bundle, nil);
+        }
+        text = [NSString stringWithFormat:modeFormat, revMode];
+    } else {
+        // Append current en0 IP on a second line, if available
+        NSString *ip = TVNCGetEn0IPAddress();
+        NSString *ipUnavailable = NSLocalizedStringFromTableInBundle(@"unavailable", @"Localizable", self.bundle, nil);
+        NSString *ipFormat =
+            NSLocalizedStringFromTableInBundle(@"Current IP Address: %@", @"Localizable", self.bundle, nil);
+        text = [NSString stringWithFormat:ipFormat, (ip.length ? ip : ipUnavailable)];
+    }
+
+    return text;
+}
+
+- (void)updateFirstGroupAndReload:(BOOL)reload {
+    if (!_firstGroupSpecifier) {
+        return;
+    }
+
+    NSString *footerText = [NSString stringWithFormat:@"%@\n%@", [self defaultFooterText], [self currentStatusText]];
+    [_firstGroupSpecifier setProperty:footerText forKey:@"footerText"];
+
+    if (reload) {
+        [self reloadSpecifier:_firstGroupSpecifier animated:NO];
+    }
+}
+
+- (void)reloadEnabledSpecifier {
+    if (!_enabledSpecifier) {
+        return;
+    }
+
+    [self reloadSpecifier:_enabledSpecifier animated:NO];
+}
+
 #pragma mark - Actions
 
 - (void)applyChanges {
@@ -309,12 +439,12 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
     // Validate ports before restarting service, using -readPreferenceValue: to get live edits
     int port = 5901;
     int httpPort = 0;
-    NSString *revMode = @"none";
+    NSString *bindHost = @"";
 
     PSSpecifier *portSpec = nil;
     PSSpecifier *httpPortSpec = nil;
-    PSSpecifier *revModeSpec = nil;
-    for (PSSpecifier *sp in [self specifiers]) {
+    PSSpecifier *bindHostSpec = nil;
+    for (PSSpecifier *sp in _specifiers) {
         NSString *key = [sp propertyForKey:@"key"];
         if (!key)
             continue;
@@ -322,9 +452,9 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
             portSpec = sp;
         else if (!httpPortSpec && [key isEqualToString:@"HttpPort"])
             httpPortSpec = sp;
-        else if (!revModeSpec && [key isEqualToString:@"ReverseMode"])
-            revModeSpec = sp;
-        if (portSpec && httpPortSpec && revModeSpec)
+        else if (!bindHostSpec && [key isEqualToString:@"BindHost"])
+            bindHostSpec = sp;
+        if (portSpec && httpPortSpec && bindHostSpec)
             break;
     }
 
@@ -342,6 +472,11 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
         httpPort = [(NSString *)httpPortVal intValue];
     }
 
+    id bindHostVal = bindHostSpec ? [self readPreferenceValue:bindHostSpec] : nil;
+    if ([bindHostVal isKindOfClass:[NSString class]]) {
+        bindHost = (NSString *)bindHostVal;
+    }
+
     BOOL portInvalid = (port < 1024 || port > 65535);
     BOOL httpInvalid = (httpPort != 0 && (httpPort < 1024 || httpPort > 65535));
     if (portInvalid || httpInvalid) {
@@ -354,7 +489,23 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:t
                                                                        message:msg
                                                                 preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:ok style:UIAlertActionStyleDefault handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:ok style:UIAlertActionStyleCancel handler:nil]];
+
+        [self presentViewController:alert animated:YES completion:nil];
+        return; // do not restart now
+    }
+
+    if (!TVNCIsValidBindHostLiteral(bindHost)) {
+        NSString *t = NSLocalizedStringFromTableInBundle(@"Invalid Bind Address", @"Localizable", self.bundle, nil);
+        NSString *msg = NSLocalizedStringFromTableInBundle(
+            @"Bind address must be a valid IPv4/IPv6 literal, or empty to listen on all interfaces.",
+            @"Localizable", self.bundle, nil);
+        NSString *ok = NSLocalizedStringFromTableInBundle(@"OK", @"Localizable", self.bundle, nil);
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:t
+                                                                       message:msg
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:ok style:UIAlertActionStyleCancel handler:nil]];
 
         [self presentViewController:alert animated:YES completion:nil];
         return; // do not restart now
@@ -364,32 +515,7 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
     NSString *message = NSLocalizedStringFromTableInBundle(@"Are you sure you want to restart the VNC service?",
                                                            @"Localizable", self.bundle, nil);
 
-    id revModeVal = revModeSpec ? [self readPreferenceValue:revModeSpec] : nil;
-    if ([revModeVal isKindOfClass:[NSString class]]) {
-        revMode = (NSString *)revModeVal;
-    }
-
-    NSString *ipLine;
-    BOOL isRevModeOn = [revMode caseInsensitiveCompare:@"none"] != NSOrderedSame;
-    if (isRevModeOn) {
-        NSString *modeFormat =
-            NSLocalizedStringFromTableInBundle(@"Reverse Connection: %@", @"Localizable", self.bundle, nil);
-        if ([revMode caseInsensitiveCompare:@"repeater"] == NSOrderedSame) {
-            revMode = NSLocalizedStringFromTableInBundle(@"Repeater", @"Localizable", self.bundle, nil);
-        } else {
-            revMode = NSLocalizedStringFromTableInBundle(@"Viewer", @"Localizable", self.bundle, nil);
-        }
-        ipLine = [NSString stringWithFormat:modeFormat, revMode];
-    } else {
-        // Append current en0 IP on a second line, if available
-        NSString *ip = TVNCGetEn0IPAddress();
-        NSString *ipUnavailable = NSLocalizedStringFromTableInBundle(@"unavailable", @"Localizable", self.bundle, nil);
-        NSString *ipFormat =
-            NSLocalizedStringFromTableInBundle(@"Current IP Address: %@", @"Localizable", self.bundle, nil);
-        ipLine = [NSString stringWithFormat:ipFormat, (ip.length ? ip : ipUnavailable)];
-    }
-
-    NSString *fullMessage = [NSString stringWithFormat:@"%@\n%@", message, ipLine];
+    NSString *fullMessage = [NSString stringWithFormat:@"%@\n%@", message, [self currentStatusText]];
     NSString *cancel = NSLocalizedStringFromTableInBundle(@"Cancel", @"Localizable", self.bundle, nil);
     NSString *restart = NSLocalizedStringFromTableInBundle(@"Restart", @"Localizable", self.bundle, nil);
 
@@ -410,22 +536,36 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)viewLogs {
-    NSString *rootPath = [self.bundle bundlePath];
-    do {
-        if ([rootPath hasSuffix:@"/var/jb"] || [[rootPath lastPathComponent] hasPrefix:@".jbroot-"]) {
-            // Found the jailbreak root
-            break;
-        }
-        if ([rootPath isEqualToString:@"/"] || !rootPath.length) {
-            // Reached the root without finding jailbreak root
-            break;
-        }
-        rootPath = [rootPath stringByDeletingLastPathComponent];
-    } while (YES);
+- (NSString *)jbrootPath {
+    if (!_jbrootPath) {
+        NSString *rootPath = [self.bundle bundlePath];
+        do {
+            if ([rootPath hasSuffix:@"/procursus"] || [rootPath hasSuffix:@"/var/jb"] ||
+                [[rootPath lastPathComponent] hasPrefix:@".jbroot-"]) {
+                // Found the jailbreak root
+                break;
+            }
+            if ([rootPath hasPrefix:@"/private/preboot/"] && [rootPath hasSuffix:@"/jb"]) {
+                // Found the jailbreak root (NathanLR)
+                break;
+            }
+            if ([rootPath isEqualToString:@"/"] || !rootPath.length) {
+                // Reached the root without finding jailbreak root
+                break;
+            }
+            rootPath = [rootPath stringByDeletingLastPathComponent];
+        } while (YES);
+        _jbrootPath = rootPath;
+    }
+    return _jbrootPath;
+}
 
-    NSString *logsPath = [rootPath stringByAppendingPathComponent:@"tmp/trollvnc-stderr.log"];
-    NSLog(@"XXLogs path: %@", logsPath);
+- (void)viewLogs {
+#if TARGET_IPHONE_SIMULATOR
+    NSString *logsPath = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp/trollvnc-stderr.log"];
+#else
+    NSString *logsPath = [self.jbrootPath stringByAppendingPathComponent:@"tmp/trollvnc-stderr.log"];
+#endif
 
     StripedTextTableViewController *logsVC = [[StripedTextTableViewController alloc] initWithPath:logsPath];
     logsVC.primaryColor = self.primaryColor;
@@ -459,6 +599,217 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
     [self presentViewController:navController animated:YES completion:nil];
 }
 
+- (NSString *)cacertPath {
+#if TARGET_IPHONE_SIMULATOR
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences/com.82flex.trollvnc.ca-cert.pem"];
+#else
+    return [self.jbrootPath
+        stringByAppendingPathComponent:@"var/mobile/Library/Preferences/com.82flex.trollvnc.ca-cert.pem"];
+#endif
+}
+
+- (NSString *)cakeyPath {
+#if TARGET_IPHONE_SIMULATOR
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences/com.82flex.trollvnc.ca-key.pem"];
+#else
+    return [self.jbrootPath
+        stringByAppendingPathComponent:@"var/mobile/Library/Preferences/com.82flex.trollvnc.ca-key.pem"];
+#endif
+}
+
+- (void)exportCertificate {
+    NSString *cacertPath = [self cacertPath];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:cacertPath]) {
+        NSString *title =
+            NSLocalizedStringFromTableInBundle(@"Certificate Not Found", @"Localizable", self.bundle, nil);
+        NSString *message = NSLocalizedStringFromTableInBundle(
+            @"You need to generate a self-signed CA certificate first before exporting it.", @"Localizable",
+            self.bundle, nil);
+        NSString *ok = NSLocalizedStringFromTableInBundle(@"OK", @"Localizable", self.bundle, nil);
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                       message:message
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:ok style:UIAlertActionStyleCancel handler:nil]];
+
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    NSURL *fileURL = [NSURL fileURLWithPath:cacertPath];
+    if (!fileURL) {
+        return;
+    }
+
+    UIActivityViewController *activityViewController =
+        [[UIActivityViewController alloc] initWithActivityItems:@[ fileURL ] applicationActivities:nil];
+
+    PSTableCell *exportCertCell = nil;
+    if (_exportCertSpecifier) {
+        exportCertCell = [self cachedCellForSpecifier:_exportCertSpecifier];
+    }
+    activityViewController.popoverPresentationController.sourceView = exportCertCell ?: self.view;
+
+    [self presentViewController:activityViewController animated:YES completion:nil];
+}
+
+- (void)generateKeys {
+    NSString *cakeyPath = [self cakeyPath];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:cakeyPath]) {
+        NSString *title =
+            NSLocalizedStringFromTableInBundle(@"Overwrite Existing Keys", @"Localizable", self.bundle, nil);
+        NSString *message =
+            NSLocalizedStringFromTableInBundle(@"A CA private key already exists. Generating new keys will overwrite "
+                                               @"the existing ones. Are you sure you want to continue?",
+                                               @"Localizable", self.bundle, nil);
+        NSString *cancel = NSLocalizedStringFromTableInBundle(@"Cancel", @"Localizable", self.bundle, nil);
+        NSString *generate = NSLocalizedStringFromTableInBundle(@"Overwrite", @"Localizable", self.bundle, nil);
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                       message:message
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:cancel style:UIAlertActionStyleCancel handler:nil]];
+        __weak typeof(self) weakSelf = self;
+        [alert addAction:[UIAlertAction actionWithTitle:generate
+                                                  style:UIAlertActionStyleDestructive
+                                                handler:^(UIAlertAction *_Nonnull action) {
+                                                    [weakSelf _reallyGenerateKeys];
+                                                }]];
+        [alert addAction:[UIAlertAction actionWithTitle:NSLocalizedStringFromTableInBundle(
+                                                            @"Export Certificate…", @"Localizable", self.bundle, nil)
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction *_Nonnull action) {
+                                                    [weakSelf exportCertificate];
+                                                }]];
+
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    [self _reallyGenerateKeys];
+}
+
+- (void)_reallyGenerateKeys {
+    NSString *randomUUID = [[[NSUUID UUID] UUIDString] substringFromIndex:28];
+    NSString *commonName = [NSString stringWithFormat:@"TrollVNC %@", randomUUID];
+
+    ZTSelfSignedCertificate *ca = [ZTSelfSignedCertificate generateWithCommonName:commonName];
+    if (!ca) {
+        NSString *title = NSLocalizedStringFromTableInBundle(@"Generation Failed", @"Localizable", self.bundle, nil);
+        NSString *message = NSLocalizedStringFromTableInBundle(@"Failed to generate self-signed CA certificate.",
+                                                               @"Localizable", self.bundle, nil);
+        NSString *ok = NSLocalizedStringFromTableInBundle(@"OK", @"Localizable", self.bundle, nil);
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                       message:message
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:ok style:UIAlertActionStyleCancel handler:nil]];
+
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    BOOL succeed = YES;
+    NSError *error = nil;
+    do {
+        NSString *cacertPath = [self cacertPath];
+        succeed = [ca.certificatePEM writeToFile:cacertPath atomically:YES encoding:NSUTF8StringEncoding error:&error];
+        if (!succeed) {
+            break;
+        }
+
+        succeed = [[NSFileManager defaultManager] setAttributes:@{NSFilePosixPermissions : @0600}
+                                                   ofItemAtPath:cacertPath
+                                                          error:&error];
+        if (!succeed) {
+            break;
+        }
+
+        NSString *cakeyPath = [self cakeyPath];
+        succeed = [ca.privateKeyPEM writeToFile:cakeyPath atomically:YES encoding:NSUTF8StringEncoding error:&error];
+        if (!succeed) {
+            break;
+        }
+
+        succeed = [[NSFileManager defaultManager] setAttributes:@{NSFilePosixPermissions : @0600}
+                                                   ofItemAtPath:cakeyPath
+                                                          error:&error];
+        if (!succeed) {
+            break;
+        }
+    } while (0);
+
+    if (!succeed) {
+        NSString *title = NSLocalizedStringFromTableInBundle(@"Generation Failed", @"Localizable", self.bundle, nil);
+        NSString *message =
+            [NSString stringWithFormat:NSLocalizedStringFromTableInBundle(@"Failed to save generated keys: %@",
+                                                                          @"Localizable", self.bundle, nil),
+                                       error.localizedDescription];
+        NSString *ok = NSLocalizedStringFromTableInBundle(@"OK", @"Localizable", self.bundle, nil);
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                       message:message
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:ok style:UIAlertActionStyleCancel handler:nil]];
+
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    [super setPreferenceValue:[self cacertPath] specifier:[self certSpecifier]];
+    [super setPreferenceValue:[self cakeyPath] specifier:[self keysSpecifier]];
+
+    [self reloadSpecifiers];
+
+    NSString *title = NSLocalizedStringFromTableInBundle(@"Generation Succeeded", @"Localizable", self.bundle, nil);
+    NSString *message = NSLocalizedStringFromTableInBundle(
+        @"The self-signed CA certificate and private key have been successfully generated. You need to trust this "
+        @"certificate in your client browser or operating system. Restart the service to apply the changes.",
+        @"Localizable", self.bundle, nil);
+    NSString *ok = NSLocalizedStringFromTableInBundle(@"OK", @"Localizable", self.bundle, nil);
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:ok style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:NSLocalizedStringFromTableInBundle(@"Export Certificate…",
+                                                                                       @"Localizable", self.bundle, nil)
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *_Nonnull action) {
+                                                [self exportCertificate];
+                                            }]];
+
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)resetDefaults {
+    NSString *title = NSLocalizedStringFromTableInBundle(@"Reset to Defaults", @"Localizable", self.bundle, nil);
+    NSString *message = NSLocalizedStringFromTableInBundle(
+        @"Are you sure you want to reset all settings to their defaults?", @"Localizable", self.bundle, nil);
+    NSString *cancel = NSLocalizedStringFromTableInBundle(@"Cancel", @"Localizable", self.bundle, nil);
+    NSString *reset = NSLocalizedStringFromTableInBundle(@"Reset", @"Localizable", self.bundle, nil);
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:cancel style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:reset
+                                              style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *_Nonnull action) {
+                                                [weakSelf _reallyResetDefaults];
+                                            }]];
+
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)_reallyResetDefaults {
+    [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:@"com.82flex.trollvnc"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    [self reloadSpecifiers];
+}
+
 - (void)support {
     NSURL *url = [NSURL URLWithString:@"https://havoc.app/search/82Flex"];
     if ([[UIApplication sharedApplication] canOpenURL:url]) {
@@ -467,7 +818,7 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
 }
 
 - (void)source {
-    NSURL *url = [NSURL URLWithString:@"https://github.com/OwnGoalStudio/TrollVNC"];
+    NSURL *url = [NSURL URLWithString:@"https://github.com/owngoal-dev/TrollVNC"];
     if ([[UIApplication sharedApplication] canOpenURL:url]) {
         [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
     }
@@ -480,25 +831,16 @@ NS_INLINE NSString *TVNCGetEn0IPAddress(void) {
         return [super tableView:tableView cellForRowAtIndexPath:indexPath];
     }
 
-    // Color the last section (support) button blue
-    NSArray *specs = [self specifiers];
-    NSInteger groupCount = 0;
-    for (PSSpecifier *sp in specs) {
-        if ([[sp propertyForKey:@"cell"] isEqualToString:@"PSGroupCell"]) {
-            groupCount++;
-        }
-    }
+    PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
+    NSString *key = [specifier propertyForKey:@"cell"];
+    if ([key isEqualToString:@"PSButtonCell"]) {
+        UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
 
-    NSInteger lastSection = groupCount - 2; // support group
-    if (indexPath.section >= lastSection) {
-        PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
-        NSString *key = [specifier propertyForKey:@"cell"];
-        if ([key isEqualToString:@"PSButtonCell"]) {
-            UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
-            cell.textLabel.textColor = self.primaryColor;
-            cell.textLabel.highlightedTextColor = self.primaryColor;
-            return cell;
-        }
+        BOOL isDestructive =
+            ([specifier propertyForKey:@"isDestructive"] && [[specifier propertyForKey:@"isDestructive"] boolValue]);
+        cell.textLabel.textColor = isDestructive ? [UIColor systemRedColor] : self.primaryColor;
+        cell.textLabel.highlightedTextColor = isDestructive ? [UIColor systemRedColor] : self.primaryColor;
+        return cell;
     }
 
     return [super tableView:tableView cellForRowAtIndexPath:indexPath];

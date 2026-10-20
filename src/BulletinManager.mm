@@ -45,6 +45,7 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
+#if !TARGET_IPHONE_SIMULATOR
 #ifdef THEBOOTSTRAP
         mSectionIdentifier = @"com.82flex.TrollVNCApp";
 #else
@@ -61,6 +62,7 @@
         [mNotificationCenter setNotificationCategories:[NSSet setWithObjects:showTitleCategory, nil]];
 
         mSingleNotificationIdentifier = nil;
+#endif
     }
     return self;
 }
@@ -68,7 +70,7 @@
 - (void)updateSingleBannerWithContent:(NSString *)messageContent
                            badgeCount:(NSInteger)badgeCount
                              userInfo:(NSDictionary *)userInfo {
-
+#if !TARGET_IPHONE_SIMULATOR
     UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
 
     content.title = @"TrollVNC";
@@ -81,8 +83,9 @@
     content.badge = @(badgeCount);
 #endif
 
-    if (@available(iOS 15.0, *)) {
-        content.interruptionLevel = UNNotificationInterruptionLevelPassive;
+    if (@available(iOS 15, *)) {
+        if ([content respondsToSelector:@selector(setInterruptionLevel:)])
+            content.interruptionLevel = UNNotificationInterruptionLevelPassive;
     }
 
     if (mSingleNotificationIdentifier) {
@@ -98,10 +101,11 @@
                                                                           trigger:trigger];
 
     [mNotificationCenter addNotificationRequest:request withCompletionHandler:nil];
+#endif
 }
 
 - (void)popBannerWithContent:(NSString *)messageContent userInfo:(NSDictionary *)userInfo {
-
+#if !TARGET_IPHONE_SIMULATOR
     UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
 
     content.title = @"TrollVNC";
@@ -111,8 +115,9 @@
     content.userInfo = userInfo;
     content.sound = [UNNotificationSound defaultSound];
 
-    if (@available(iOS 15.0, *)) {
-        content.interruptionLevel = UNNotificationInterruptionLevelActive;
+    if (@available(iOS 15, *)) {
+        if ([content respondsToSelector:@selector(setInterruptionLevel:)])
+            content.interruptionLevel = UNNotificationInterruptionLevelActive;
     }
 
     NSString *uuidString = [[NSUUID UUID] UUIDString];
@@ -121,15 +126,18 @@
                                                                           trigger:nil];
 
     [mNotificationCenter addNotificationRequest:request withCompletionHandler:nil];
+#endif
 }
 
 - (void)revokeSingleNotification {
+#if !TARGET_IPHONE_SIMULATOR
     [self resetBadgeCount];
     if (mSingleNotificationIdentifier) {
         [mNotificationCenter removePendingNotificationRequestsWithIdentifiers:@[ mSingleNotificationIdentifier ]];
         [mNotificationCenter removeDeliveredNotificationsWithIdentifiers:@[ mSingleNotificationIdentifier ]];
         mSingleNotificationIdentifier = nil;
     }
+#endif
 }
 
 - (void)revokeAllNotifications {
@@ -141,17 +149,23 @@
 #pragma mark - Private Methods
 
 - (void)resetBadgeCount {
+#if !TARGET_IPHONE_SIMULATOR
 #ifdef THEBOOTSTRAP
     if (@available(iOS 16, *)) {
-        [mNotificationCenter setBadgeCount:0
-                     withCompletionHandler:^(NSError *_Nullable error) {
-                         if (error) {
-                             TVLog(@"Error setting badge count: %@", error);
-                         }
-                     }];
+        if ([mNotificationCenter respondsToSelector:@selector(setBadgeCount:withCompletionHandler:)]) {
+            [mNotificationCenter setBadgeCount:0
+                         withCompletionHandler:^(NSError *_Nullable error) {
+                             if (error) {
+                                 TVLog(@"Error setting badge count: %@", error);
+                             }
+                         }];
+        } else {
+            [self updateSingleBannerWithContent:@"" badgeCount:0 userInfo:nil];
+        }
     } else {
         [self updateSingleBannerWithContent:@"" badgeCount:0 userInfo:nil];
     }
+#endif
 #endif
 }
 

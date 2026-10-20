@@ -60,10 +60,10 @@ add_bool ViewOnly              "${TVNC_VIEW_ONLY:-}"
 add_bool SingleNotifEnabled    "${TVNC_SINGLE_NOTIF_ENABLED:-}"
 add_bool ClientNotifsEnabled   "${TVNC_CLIENT_NOTIFS_ENABLED:-}"
 add_bool OrientationSync       "${TVNC_ORIENTATION_SYNC:-}"
+add_bool OrientationPadFix     "${TVNC_ORIENTATION_PAD_FIX:-}"
 add_bool NaturalScroll         "${TVNC_NATURAL_SCROLL:-}"
 add_bool AutoAssistEnabled     "${TVNC_AUTO_ASSIST_ENABLED:-}"
 add_bool ServerCursor          "${TVNC_SERVER_CURSOR:-}"
-add_bool AsyncSwap             "${TVNC_ASYNC_SWAP:-}"
 add_bool BonjourEnabled        "${TVNC_BONJOUR_ENABLED:-}"
 add_bool KeyLogging            "${TVNC_KEY_LOGGING:-}"
 
@@ -85,17 +85,12 @@ add_str ModifierMap            "${TVNC_MODIFIER_MAP:-}"
 
 # Integers (optional)
 add_int Port                           "${TVNC_PORT:-}"
-add_int MaxInflight                    "${TVNC_MAX_INFLIGHT:-}"
-add_int TileSize                       "${TVNC_TILE_SIZE:-}"
-add_int FullscreenThresholdPercent     "${TVNC_FULLSCREEN_THRESHOLD_PERCENT:-}"
-add_int MaxRects                       "${TVNC_MAX_RECTS:-}"
 add_int HttpPort                       "${TVNC_HTTP_PORT:-}"
 add_int ReverseRepeaterID              "${TVNC_REVERSE_REPEATER_ID:-}"
 
 # Reals (optional)
 add_real KeepAliveSec         "${TVNC_KEEPALIVE_SEC:-}"
 add_real Scale                "${TVNC_SCALE:-}"
-add_real DeferWindowSec       "${TVNC_DEFER_WINDOW_SEC:-}"
 add_real WheelStepPx          "${TVNC_WHEEL_STEP_PX:-}"
 
 # Footer

@@ -22,6 +22,7 @@
 #import <arpa/inet.h>
 #import <errno.h>
 #import <netinet/in.h>
+#import <netinet/tcp.h>
 #import <string.h>
 #import <sys/socket.h>
 #import <unistd.h>
@@ -46,11 +47,17 @@ static NSData *TVNCReadAll(int fd, double timeoutSec) {
     uint8_t buf[2048];
     for (;;) {
         ssize_t n = recv(fd, buf, sizeof(buf), 0);
-        if (n <= 0)
-            break;
+        if (n < 0) {
+            // EAGAIN/EWOULDBLOCK means timeout fired — no more data available
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
+            if (errno == EINTR)
+                continue;
+            break; // real error
+        }
+        if (n == 0)
+            break; // peer closed / EOF
         [md appendBytes:buf length:(NSUInteger)n];
-        if (n < (ssize_t)sizeof(buf))
-            break;
     }
     return md;
 }
@@ -106,6 +113,11 @@ static int TVNCConnect(void) {
 @property(nonatomic, assign) int subFd;
 @property(nonatomic, strong) dispatch_source_t subReadSource;
 
+// Reconnection state
+@property(nonatomic, strong) dispatch_source_t subReconnectTimer;
+@property(nonatomic, assign) NSTimeInterval subReconnectDelay;
+@property(nonatomic, assign) BOOL subIntentionallyStopped;
+
 @end
 
 #pragma mark - Implementation
@@ -144,6 +156,8 @@ static int TVNCConnect(void) {
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    self.subIntentionallyStopped = NO;
+    self.subReconnectDelay = 1.0;
     [self startSubscriptionIfNeeded];
 }
 
@@ -195,8 +209,28 @@ static int TVNCConnect(void) {
         return;
     }
 
-    // Best-effort read initial OK
-    (void)TVNCReadAll(fd, 0.5);
+    // Verify server acknowledged the subscription
+    NSData *okData = TVNCReadAll(fd, 0.5);
+    if (!okData || okData.length < 2 || memmem(okData.bytes, okData.length, "OK", 2) == NULL) {
+        close(fd);
+        return;
+    }
+
+    // Enable TCP keepalive to detect dead connections promptly
+    int yes = 1;
+    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes));
+#ifdef TCP_KEEPALIVE
+    int idle = 5; // Start probing after 5s idle
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle));
+#endif
+#ifdef TCP_KEEPINTVL
+    int intvl = 2; // Probe every 2s
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+#endif
+#ifdef TCP_KEEPCNT
+    int cnt = 3; // Give up after 3 failed probes (~11s total)
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+#endif
 
     self.subFd = fd;
 
@@ -218,16 +252,71 @@ static int TVNCConnect(void) {
     dispatch_resume(src);
 }
 
-- (void)stopSubscription {
+- (void)teardownSubscriptionConnection {
     if (self.subReadSource) {
         dispatch_source_cancel(self.subReadSource);
         self.subReadSource = nil;
     }
     if (self.subFd > 0) {
-        // Best-effort to inform server (non-fatal if it fails)
-        (void)TVNCSendLine(self.subFd, @"subscribe off");
         close(self.subFd);
         self.subFd = 0;
+    }
+}
+
+- (void)stopSubscription {
+    [self cancelReconnect];
+    self.subIntentionallyStopped = YES;
+    self.subReconnectDelay = 1.0;
+
+    [self teardownSubscriptionConnection];
+}
+
+- (void)scheduleReconnect {
+    if (self.subIntentionallyStopped)
+        return;
+    if (self.subReconnectTimer)
+        return;
+
+    // Add ±20% jitter to avoid thundering herd
+    NSTimeInterval base = self.subReconnectDelay;
+    if (base < 1.0)
+        base = 1.0;
+    double jitter = base * 0.2 * ((double)arc4random_uniform(UINT32_MAX) / UINT32_MAX * 2.0 - 1.0);
+    NSTimeInterval delay = base + jitter;
+
+    dispatch_queue_t q = dispatch_get_main_queue();
+    dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, q);
+    uint64_t delayNs = (uint64_t)(delay * NSEC_PER_SEC);
+    dispatch_source_set_timer(t, dispatch_time(DISPATCH_TIME_NOW, delayNs), DISPATCH_TIME_FOREVER, delayNs / 10);
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(t, ^{
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf)
+            return;
+
+        strongSelf.subReconnectTimer = nil;
+
+        [strongSelf startSubscriptionIfNeeded];
+        if (strongSelf.subFd > 0) {
+            // Reconnected successfully — reset backoff and pull fresh data
+            strongSelf.subReconnectDelay = 1.0;
+            [strongSelf refresh];
+        } else {
+            // Still failing — exponential backoff, cap at 30s
+            strongSelf.subReconnectDelay = MIN(strongSelf.subReconnectDelay * 2.0, 30.0);
+            [strongSelf scheduleReconnect];
+        }
+    });
+
+    self.subReconnectTimer = t;
+    dispatch_resume(t);
+}
+
+- (void)cancelReconnect {
+    if (self.subReconnectTimer) {
+        dispatch_source_cancel(self.subReconnectTimer);
+        self.subReconnectTimer = nil;
     }
 }
 
@@ -241,16 +330,17 @@ static int TVNCConnect(void) {
     [self reloadDataFromServer];
 }
 
-// Removed index-based disconnect; use -disconnectClientWithId: instead.
+// Removed index-based disconnect; use -disconnectClientWithId:block: instead.
 
-- (void)disconnectClientWithId:(NSString *)cid {
+- (void)disconnectClientWithId:(NSString *)cid block:(BOOL)shouldBlock {
     if (cid.length == 0)
         return;
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         int fd = TVNCConnect();
         if (fd >= 0) {
-            TVNCSendLine(fd, [NSString stringWithFormat:@"disconnect %@", cid]);
+            NSString *cmd = shouldBlock ? @"block" : @"disconnect";
+            TVNCSendLine(fd, [NSString stringWithFormat:@"%@ %@", cmd, cid]);
             (void)TVNCReadAll(fd, 2.0);
             close(fd);
         }
@@ -419,7 +509,9 @@ static int TVNCConnect(void) {
     uint8_t buf[256];
     ssize_t n = recv(fd, buf, sizeof(buf) - 1, 0);
     if (n <= 0) {
-        [self stopSubscription];
+        // Connection lost — tear down and schedule reconnect
+        [self teardownSubscriptionConnection];
+        [self scheduleReconnect];
         return;
     }
     buf[n] = '\0';
@@ -440,19 +532,31 @@ static int TVNCConnect(void) {
         return nil;
 
     __weak typeof(self) weakSelf = self;
-    UIContextualAction *kick = [UIContextualAction
+
+    UIContextualAction *block = [UIContextualAction
         contextualActionWithStyle:UIContextualActionStyleDestructive
-                            title:NSLocalizedStringFromTableInBundle(@"Disconnect", @"Localizable", self.bundle, nil)
+                            title:NSLocalizedStringFromTableInBundle(@"Block", @"Localizable", self.bundle, nil)
                           handler:^(__kindof UIContextualAction *action, __kindof UIView *sourceView,
                                     void (^completionHandler)(BOOL)) {
                               NSString *cid = [weakSelf.dataSource itemIdentifierForIndexPath:indexPath] ?: @"";
-                              [weakSelf disconnectClientWithId:cid];
+                              [weakSelf disconnectClientWithId:cid block:YES];
                               if (completionHandler)
                                   completionHandler(YES);
                           }];
 
-    UISwipeActionsConfiguration *config = [UISwipeActionsConfiguration configurationWithActions:@[ kick ]];
-    config.performsFirstActionWithFullSwipe = YES;
+    UIContextualAction *kick = [UIContextualAction
+        contextualActionWithStyle:UIContextualActionStyleNormal
+                            title:NSLocalizedStringFromTableInBundle(@"Disconnect", @"Localizable", self.bundle, nil)
+                          handler:^(__kindof UIContextualAction *action, __kindof UIView *sourceView,
+                                    void (^completionHandler)(BOOL)) {
+                              NSString *cid = [weakSelf.dataSource itemIdentifierForIndexPath:indexPath] ?: @"";
+                              [weakSelf disconnectClientWithId:cid block:NO];
+                              if (completionHandler)
+                                  completionHandler(YES);
+                          }];
+
+    UISwipeActionsConfiguration *config = [UISwipeActionsConfiguration configurationWithActions:@[ block, kick ]];
+    config.performsFirstActionWithFullSwipe = NO;
     return config;
 }
 
@@ -503,15 +607,26 @@ static int TVNCConnect(void) {
                                          [gen notificationOccurred:UINotificationFeedbackTypeSuccess];
                                      }];
                          UIAction *disconnect = [UIAction
-                             actionWithTitle:NSLocalizedStringFromTableInBundle(@"Disconnect Now", @"Localizable",
+                             actionWithTitle:NSLocalizedStringFromTableInBundle(@"Disconnect Client", @"Localizable",
                                                                                 self.bundle, nil)
                                        image:[UIImage systemImageNamed:@"xmark.circle"]
                                   identifier:nil
                                      handler:^(__kindof UIAction *_Nonnull action) {
-                                         [self disconnectClientWithId:cid];
+                                         [self disconnectClientWithId:cid block:NO];
                                      }];
                          disconnect.attributes = UIMenuElementAttributesDestructive;
-                         return [UIMenu menuWithTitle:@"" children:@[ copyId, copyHost, disconnect ]];
+
+                         UIAction *block = [UIAction
+                             actionWithTitle:NSLocalizedStringFromTableInBundle(@"Block Client", @"Localizable",
+                                                                                self.bundle, nil)
+                                       image:[UIImage systemImageNamed:@"hand.raised.fill"]
+                                  identifier:nil
+                                     handler:^(__kindof UIAction *_Nonnull action) {
+                                         [self disconnectClientWithId:cid block:YES];
+                                     }];
+                         block.attributes = UIMenuElementAttributesDestructive;
+
+                         return [UIMenu menuWithTitle:@"" children:@[ copyId, copyHost, disconnect, block ]];
                      }];
 }
 

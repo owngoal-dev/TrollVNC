@@ -6,7 +6,13 @@
 
 "0.1–1.0. Lower scale reduces bandwidth/CPU; 1.0 is pixel-perfect. Balance quality, latency and battery." = "0.1–1.0. Lower scale reduces bandwidth/CPU; 1.0 is pixel-perfect. Balance quality, latency and battery.";
 
+"180°" = "180°";
+
+"270° Clockwise" = "270° Clockwise";
+
 "8 characters max." = "8 characters max.";
+
+"90° Clockwise" = "90° Clockwise";
 
 "A repeater ID is required for the “UltraVNC Repeater” mode." = "A repeater ID is required for the “UltraVNC Repeater” mode.";
 
@@ -20,11 +26,12 @@
 
 "Alt→Cmd" = "Alt→Cmd";
 
+"Apply a fixed rotation offset to the captured display. Useful for iPad models with non-standard default orientations." = "Apply a fixed rotation offset to the captured display. Useful for iPad models with non-standard default orientations.";
+
 "Are you sure you want to respring your device?" = "Are you sure you want to respring your device?";
 
 "Assistive Touch Auto-Activation" = "Assistive Touch Auto-Activation";
 
-"Attempts to avoid blocking when swapping buffers; may cause tearing. Can reduce stalls when encoders are slow." = "Attempts to avoid blocking when swapping buffers; may cause tearing. Can reduce stalls when encoders are slow.";
 
 "Authentication" = "Authentication";
 
@@ -32,13 +39,16 @@
 
 "Balance quality, latency and battery." = "Balance quality, latency and battery.";
 
+"Bind Address" = "Bind Address";
+
+"Bind to a specific local IP address. Leave empty to listen on all interfaces." = "Bind to a specific local IP address. Leave empty to listen on all interfaces.";
+
 "Cancel" = "Cancel";
 
 "Choose how remote Alt/Super map to iOS Option/Command." = "Choose how remote Alt/Super map to iOS Option/Command.";
 
 "Clipboard Sync" = "Clipboard Sync";
 
-"Coalesces updates to reduce overhead. Higher values add latency; typical range 0.005–0.030." = "Coalesces updates to reduce overhead. Higher values add latency; typical range 0.005–0.030.";
 
 "Configure basic server options." = "Configure basic server options.";
 
@@ -48,13 +58,13 @@
 
 "Cursor & Orientation" = "Cursor & Orientation";
 
-"Defer Window (sec)" = "Defer Window (sec)";
 
 "Desktop Name" = "Desktop Name";
 
 "Dirty Detection" = "Dirty Detection";
 
-"Dirty-detection tile size in pixels. Smaller captures finer changes but increases CPU cost." = "Dirty-detection tile size in pixels. Smaller captures finer changes but increases CPU cost.";
+
+"Disabled" = "Disabled";
 
 "Display & Performance" = "Display & Performance";
 
@@ -66,13 +76,16 @@
 
 "Establish a reverse connection to a listening VNC viewer or repeater without opening a server port. This is useful for bypassing firewalls or NAT." = "Establish a reverse connection to a listening VNC viewer or repeater without opening a server port. This is useful for bypassing firewalls or NAT.";
 
+"Export Certificate…" = "Export Certificate…";
+
 "Frame Rate" = "Frame Rate";
 
 "Full-access Password" = "Full-access Password";
 
-"Fullscreen Threshold (%)" = "Fullscreen Threshold (%)";
 
 "General" = "General";
+
+"Generate CA…" = "Generate CA…";
 
 "HTTP / WebSockets" = "HTTP / WebSockets";
 
@@ -80,13 +93,14 @@
 
 "HTTP Port" = "HTTP Port";
 
-"If changed tiles exceed this percent, send a full-screen update. 0 disables dirty detection (always fullscreen)." = "If changed tiles exceed this percent, send a full-screen update. 0 disables dirty detection (always fullscreen).";
 
 "Ignore all input from clients. Overrides per-client view-only password if set." = "Ignore all input from clients. Overrides per-client view-only password if set.";
 
 "Keep-Alive (sec)" = "Keep-Alive (sec)";
 
 "Keeps device awake only while at least one client is connected. 0 disables. Range 15–300 sec; shorter intervals may increase battery usage." = "Keeps device awake only while at least one client is connected. 0 disables. Range 15–300 sec; shorter intervals may increase battery usage.";
+
+"Leave empty for all interfaces" = "Leave empty for all interfaces";
 
 "Log Keyboard Events" = "Log Keyboard Events";
 
@@ -96,11 +110,8 @@
 
 "Match iOS natural scroll direction for mouse wheel/trackpad; disable for traditional desktop direction." = "Match iOS natural scroll direction for mouse wheel/trackpad; disable for traditional desktop direction.";
 
-"Max concurrent client encodes before dropping new frames. 0 = never drop (may increase latency under load)." = "Max concurrent client encodes before dropping new frames. 0 = never drop (may increase latency under load).";
 
-"Max In-flight" = "Max In-flight";
 
-"Max Rects" = "Max Rects";
 
 "Mode" = "Mode";
 
@@ -110,9 +121,10 @@
 
 "Natural Scroll Direction" = "Natural Scroll Direction";
 
-"Non-blocking Swap" = "Non-blocking Swap";
 
 "None" = "None";
+
+"Orientation Offset" = "Orientation Offset";
 
 "Output Scale" = "Output Scale";
 
@@ -130,13 +142,15 @@
 
 "Repeater ID" = "Repeater ID";
 
+"Reset to Defaults" = "Reset to Defaults";
+
 "Respring" = "Respring";
 
 "Respring to Apply Changes" = "Respring to Apply Changes";
 
 "Reverse Connection" = "Reverse Connection";
 
-"Rotate the shared display to follow device orientation changes." = "Rotate the shared display to follow device orientation changes.";
+"Rotate the shared display to follow device orientation changes. “Orientation Offset” applies a fixed rotation for iPad models with non-standard default orientations." = "Rotate the shared display to follow device orientation changes. “Orientation Offset” applies a fixed rotation for iPad models with non-standard default orientations.";
 
 "Scroll & Input" = "Scroll & Input";
 
@@ -186,7 +200,6 @@
 
 "This project is licensed under GPLv2. Author: Lessica." = "This project is licensed under GPLv2. Author: Lessica.";
 
-"Tile Size (px)" = "Tile Size (px)";
 
 "TrollVNC" = "TrollVNC";
 
@@ -208,4 +221,5 @@
 
 "Wheel Tuning" = "Wheel Tuning";
 
-"When dirty rectangles exceed this count, collapse to a bounding box. Too high increases protocol overhead." = "When dirty rectangles exceed this count, collapse to a bounding box. Too high increases protocol overhead.";
+
+"To unblock previously blocked clients, restart the VNC service. The temporary block list is cleared on service restart." = "";

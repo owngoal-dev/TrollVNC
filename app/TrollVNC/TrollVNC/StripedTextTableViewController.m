@@ -83,10 +83,8 @@
         [rightBarButtonItems addObject:self.dismissItem];
     }
 
-    if (@available(iOS 16, *)) {
-        if (self.allowShare) {
-            [rightBarButtonItems addObject:self.shareItem];
-        }
+    if (self.allowShare) {
+        [rightBarButtonItems addObject:self.shareItem];
     }
 
     if (self.allowTrash) {
@@ -289,7 +287,12 @@
     UIActivityViewController *activityViewController =
         [[UIActivityViewController alloc] initWithActivityItems:@[ fileURL ] applicationActivities:nil];
     if (@available(iOS 16, *)) {
-        activityViewController.popoverPresentationController.sourceItem = sender;
+        if ([activityViewController.popoverPresentationController respondsToSelector:@selector(setSourceItem:)]) {
+            activityViewController.popoverPresentationController.sourceItem = sender;
+        } else {
+            activityViewController.popoverPresentationController.barButtonItem = sender;
+            activityViewController.popoverPresentationController.sourceView = self.view;
+        }
     } else {
         // Fallback on earlier versions
         activityViewController.popoverPresentationController.barButtonItem = sender;

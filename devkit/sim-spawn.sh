@@ -23,4 +23,26 @@ if [ ! -f "$BINARY" ]; then
     BINARY=".theos/obj/iphone_simulator/trollvncserver"
 fi
 
-xcrun simctl spawn "$REAL_SIMULATOR_ID" "$BINARY" -C off -U on -O on -M altcmd
+SANDBOX_PATH=$(xcrun simctl get_app_container "$REAL_SIMULATOR_ID" com.82flex.TrollVNCApp data 2>/dev/null)
+if [ -z "$SANDBOX_PATH" ]; then
+    echo "Warning: could not resolve app sandbox path; preferences may not load"
+fi
+
+STDOUT_LOG="$SANDBOX_PATH/tmp/trollvnc-stdout.log"
+STDERR_LOG="$SANDBOX_PATH/tmp/trollvnc-stderr.log"
+
+if [ -n "$SANDBOX_PATH" ]; then
+    mkdir -p "$SANDBOX_PATH/tmp"
+fi
+
+echo "Logs: $STDOUT_LOG"
+echo "      $STDERR_LOG"
+
+SERVER_ARGS=("$@")
+if [ "$#" -eq 0 ]; then
+    SERVER_ARGS=(-daemon)
+fi
+
+SIMCTL_CHILD_TROLLVNC_SANDBOX_PATH="$SANDBOX_PATH" xcrun simctl spawn "$REAL_SIMULATOR_ID" "$BINARY" \
+    "${SERVER_ARGS[@]}" \
+    > >(tee "$STDOUT_LOG") 2> >(tee "$STDERR_LOG" >&2)

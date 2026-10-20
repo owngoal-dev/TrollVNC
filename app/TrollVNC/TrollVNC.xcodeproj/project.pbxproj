@@ -27,6 +27,7 @@
 		615401C32EB1180C009FDD6F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 615360A92E65BEFD00643E64 /* Main.storyboard */; };
 		615401C42EB1180C009FDD6F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 61C756CD2E65BE6F00B2B371 /* LaunchScreen.storyboard */; };
 		615401C52EB1180C009FDD6F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 61C7569B2E65BDAC00B2B371 /* Assets.xcassets */; };
+		615EFE9F2F1602D700187EAF /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 615EFE9E2F1602D700187EAF /* CoreServices.framework */; };
 		61B0DD082EB13BEF004CC42B /* TVNCSliderCell.m in Sources */ = {isa = PBXBuildFile; fileRef = 61B0DD072EB13BEF004CC42B /* TVNCSliderCell.m */; };
 		61B0DD092EB13BEF004CC42B /* TVNCSliderCell.m in Sources */ = {isa = PBXBuildFile; fileRef = 61B0DD072EB13BEF004CC42B /* TVNCSliderCell.m */; };
 		61C756672E65B72E00B2B371 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61C756662E65B72E00B2B371 /* NetworkExtension.framework */; };
@@ -42,6 +43,9 @@
 		61C756C62E65BDAC00B2B371 /* TVNCServiceCoordinator.m in Sources */ = {isa = PBXBuildFile; fileRef = 61C756B42E65BDAC00B2B371 /* TVNCServiceCoordinator.m */; };
 		61C756C72E65BDAC00B2B371 /* TVNCViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 61C756B62E65BDAC00B2B371 /* TVNCViewController.m */; };
 		61C756CE2E65BE6F00B2B371 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 61C756CD2E65BE6F00B2B371 /* LaunchScreen.storyboard */; };
+		CC17D9BA2EC79DA1005C275A /* ZTSelfSignedCertificate.m in Sources */ = {isa = PBXBuildFile; fileRef = CC17D9B92EC79DA1005C275A /* ZTSelfSignedCertificate.m */; };
+		CC17D9BB2EC79DA1005C275A /* ZTSelfSignedCertificate.m in Sources */ = {isa = PBXBuildFile; fileRef = CC17D9B92EC79DA1005C275A /* ZTSelfSignedCertificate.m */; };
+		CC1BF93E2F101B2F00111D96 /* SpringBoardServices.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = CC1BF93D2F101B2F00111D96 /* SpringBoardServices.tbd */; };
 		CC80617F2E74967500B1AA3E /* GitHubReleaseUpdater.m in Sources */ = {isa = PBXBuildFile; fileRef = CC80617D2E74967500B1AA3E /* GitHubReleaseUpdater.m */; };
 		CC8061802E74967500B1AA3E /* DpkgVersion.m in Sources */ = {isa = PBXBuildFile; fileRef = CC80617B2E74967500B1AA3E /* DpkgVersion.m */; };
 		CC91EF902E6C2208002F5B2A /* TVNCClientListController.m in Sources */ = {isa = PBXBuildFile; fileRef = CC91EF8F2E6C2208002F5B2A /* TVNCClientListController.m */; };
@@ -56,6 +60,7 @@
 		615360AE2E65BF0000643E64 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Main.strings"; sourceTree = "<group>"; };
 		615401AC2EB117FC009FDD6F /* Preferences.Sim.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; path = Preferences.Sim.tbd; sourceTree = "<group>"; };
 		615401CA2EB1180C009FDD6F /* TrollVNC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrollVNC.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		615EFE9E2F1602D700187EAF /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
 		61B0DD062EB13BEF004CC42B /* TVNCSliderCell.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TVNCSliderCell.h; sourceTree = "<group>"; };
 		61B0DD072EB13BEF004CC42B /* TVNCSliderCell.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TVNCSliderCell.m; sourceTree = "<group>"; };
 		61C756662E65B72E00B2B371 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
@@ -82,6 +87,9 @@
 		61C756D42E65BE9100B2B371 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		61C756D62E65BEA900B2B371 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/LaunchScreen.strings; sourceTree = "<group>"; };
 		61C756D82E65BEA900B2B371 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/LaunchScreen.strings"; sourceTree = "<group>"; };
+		CC17D9B82EC79DA1005C275A /* ZTSelfSignedCertificate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZTSelfSignedCertificate.h; sourceTree = "<group>"; };
+		CC17D9B92EC79DA1005C275A /* ZTSelfSignedCertificate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZTSelfSignedCertificate.m; sourceTree = "<group>"; };
+		CC1BF93D2F101B2F00111D96 /* SpringBoardServices.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; path = SpringBoardServices.tbd; sourceTree = "<group>"; };
 		CC80617A2E74967500B1AA3E /* DpkgVersion.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DpkgVersion.h; sourceTree = "<group>"; };
 		CC80617B2E74967500B1AA3E /* DpkgVersion.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DpkgVersion.m; sourceTree = "<group>"; };
 		CC80617C2E74967500B1AA3E /* GitHubReleaseUpdater.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GitHubReleaseUpdater.h; sourceTree = "<group>"; };
@@ -101,7 +109,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				61C756672E65B72E00B2B371 /* NetworkExtension.framework in Frameworks */,
+				CC1BF93E2F101B2F00111D96 /* SpringBoardServices.tbd in Frameworks */,
 				61C756BE2E65BDAC00B2B371 /* Preferences.tbd in Frameworks */,
+				615EFE9F2F1602D700187EAF /* CoreServices.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -152,6 +162,7 @@
 			children = (
 				61C756A82E65BDAC00B2B371 /* Preferences.tbd */,
 				615401AC2EB117FC009FDD6F /* Preferences.Sim.tbd */,
+				CC1BF93D2F101B2F00111D96 /* SpringBoardServices.tbd */,
 			);
 			name = Libraries;
 			sourceTree = "<group>";
@@ -159,6 +170,7 @@
 		61C756652E65B72E00B2B371 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				615EFE9E2F1602D700187EAF /* CoreServices.framework */,
 				61C756662E65B72E00B2B371 /* NetworkExtension.framework */,
 			);
 			name = Frameworks;
@@ -198,6 +210,8 @@
 				61B0DD072EB13BEF004CC42B /* TVNCSliderCell.m */,
 				61C756B52E65BDAC00B2B371 /* TVNCViewController.h */,
 				61C756B62E65BDAC00B2B371 /* TVNCViewController.m */,
+				CC17D9B82EC79DA1005C275A /* ZTSelfSignedCertificate.h */,
+				CC17D9B92EC79DA1005C275A /* ZTSelfSignedCertificate.m */,
 			);
 			path = TrollVNC;
 			sourceTree = "<group>";
@@ -340,7 +354,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/zsh;
-			shellScript = "PATH=\"/opt/homebrew/bin:$THEOS/bin:$PATH\"\nPROJECT_BASE=\"$PROJECT_DIR/../..\"\nPACKAGE_VERSION=$(grep 'PACKAGE_VERSION' \"$PROJECT_BASE/Makefile\" | cut -d' ' -f4)\nTHEOS_STAGING_DIR=\"$PROJECT_BASE/.theos/_\"\nPRODUCT_DIR=\"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\"\n\n# Set version information\nGIT_COMMIT_COUNT=$(git rev-list --count HEAD)\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $GIT_COMMIT_COUNT\" \"$PRODUCT_DIR/Info.plist\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleShortVersionString $PACKAGE_VERSION\" \"$PRODUCT_DIR/Info.plist\"\n\n# Collect executables\n# cp -rp \"$THEOS_STAGING_DIR/usr/bin/trollvncserver\" \"$PRODUCT_DIR\"\n# cp -rp \"$THEOS_STAGING_DIR/usr/bin/trollvncmanager\" \"$PRODUCT_DIR\"\n\n# Collect bundle resources\ncp -rp \"$THEOS_STAGING_DIR/Library/PreferenceBundles/TrollVNCPrefs.bundle\" \"$PRODUCT_DIR\"\nrm -f \"$PRODUCT_DIR/TrollVNCPrefs.bundle/TrollVNCPrefs\"\ncp -rp \"$THEOS_STAGING_DIR/usr/share/trollvnc/webclients\" \"$PRODUCT_DIR\"\n";
+			shellScript = "PATH=\"/opt/homebrew/bin:$THEOS/bin:$PATH\"\nPROJECT_BASE=\"$PROJECT_DIR/../..\"\nPACKAGE_VERSION=$(grep 'PACKAGE_VERSION' \"$PROJECT_BASE/Makefile\" | cut -d' ' -f4)\nTHEOS_STAGING_DIR=\"$PROJECT_BASE/.theos/_\"\nPRODUCT_DIR=\"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\"\n\n# Set version information\nGIT_COMMIT_COUNT=$(git rev-list --count HEAD)\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $GIT_COMMIT_COUNT\" \"$PRODUCT_DIR/Info.plist\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleShortVersionString $PACKAGE_VERSION\" \"$PRODUCT_DIR/Info.plist\"\n\n# Collect executables\n# cp -rp \"$THEOS_STAGING_DIR/usr/bin/trollvncserver\" \"$PRODUCT_DIR\"\n# cp -rp \"$THEOS_STAGING_DIR/usr/bin/trollvncmanager\" \"$PRODUCT_DIR\"\n\n# Collect bundle resources\ncp -rp \"$THEOS_STAGING_DIR/Applications/TrollVNC.app/TrollVNCPrefs.bundle\" \"$PRODUCT_DIR\"\nrm -f \"$PRODUCT_DIR/TrollVNCPrefs.bundle/TrollVNCPrefs\"\ncp -rp \"$THEOS_STAGING_DIR/Applications/TrollVNC.app/webclients\" \"$PRODUCT_DIR\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -358,6 +372,7 @@
 				61C756C22E65BDAC00B2B371 /* StripedTextTableViewController.m in Sources */,
 				61C756C32E65BDAC00B2B371 /* TaskProcess+ObjC.swift in Sources */,
 				61C756C42E65BDAC00B2B371 /* TVNCHotspotManager.m in Sources */,
+				CC17D9BB2EC79DA1005C275A /* ZTSelfSignedCertificate.m in Sources */,
 				61C756C52E65BDAC00B2B371 /* TVNCRootListController.m in Sources */,
 				CC91EF902E6C2208002F5B2A /* TVNCClientListController.m in Sources */,
 				61B0DD092EB13BEF004CC42B /* TVNCSliderCell.m in Sources */,
@@ -380,6 +395,7 @@
 				615401B62EB1180C009FDD6F /* StripedTextTableViewController.m in Sources */,
 				615401B72EB1180C009FDD6F /* TaskProcess+ObjC.swift in Sources */,
 				615401B82EB1180C009FDD6F /* TVNCHotspotManager.m in Sources */,
+				CC17D9BA2EC79DA1005C275A /* ZTSelfSignedCertificate.m in Sources */,
 				615401B92EB1180C009FDD6F /* TVNCRootListController.m in Sources */,
 				615401BA2EB1180C009FDD6F /* TVNCClientListController.m in Sources */,
 				61B0DD082EB13BEF004CC42B /* TVNCSliderCell.m in Sources */,

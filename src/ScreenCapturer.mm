@@ -25,6 +25,7 @@
 #import <UIKit/UIScreen.h>
 #import <mach/mach.h>
 
+#import "Control.h"
 #import "IOKitSPI.h"
 #import "IOSurfaceSPI.h"
 #import "Logging.h"
@@ -78,8 +79,8 @@ void CARenderServerRenderDisplay(kern_return_t a, CFStringRef b, IOSurfaceRef su
     CGSize screenSize = [[UIScreen mainScreen] _unjailedReferenceBoundsInPixels].size;
 
 #if !TARGET_IPHONE_SIMULATOR
-    BOOL isPad = ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad);
-    if (isPad) {
+    if (gOrientationFixQuad % 2 != 0) {
+        // Odd quadrant (90° or 270°) — swap width and height
         width = (int)round(screenSize.height);
         height = (int)round(screenSize.width);
     } else {
@@ -272,17 +273,23 @@ static CFIndex sDirtyFrameCount = 0;
         mDisplayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
 
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 150000
-        if (@available(iOS 15.0, *)) {
-            CAFrameRateRange range;
-            range.minimum = (mMinFps > 0) ? mMinFps : 0.0;
-            range.maximum = (mMaxFps > 0) ? mMaxFps : 0.0;
-            range.preferred = (mPreferredFps > 0) ? mPreferredFps : 0.0;
-            mDisplayLink.preferredFrameRateRange = range;
+        if (@available(iOS 15, *)) {
+            if ([mDisplayLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+                CAFrameRateRange range;
+                range.minimum = (mMinFps > 0) ? mMinFps : 0.0;
+                range.maximum = (mMaxFps > 0) ? mMaxFps : 0.0;
+                range.preferred = (mPreferredFps > 0) ? mPreferredFps : 0.0;
+                mDisplayLink.preferredFrameRateRange = range;
+            } else {
+                NSInteger setFps = (mMaxFps > 0) ? mMaxFps : mPreferredFps;
+                if ([mDisplayLink respondsToSelector:@selector(setPreferredFramesPerSecond:)])
+                    mDisplayLink.preferredFramesPerSecond = (int)setFps; // 0 uses native/system default
+            }
         } else {
 #endif
             // iOS 14 fallback: use preferredFramesPerSecond; choose max in the provided range
             NSInteger setFps = (mMaxFps > 0) ? mMaxFps : mPreferredFps;
-            if ([mDisplayLink respondsToSelector:@selector(preferredFramesPerSecond)])
+            if ([mDisplayLink respondsToSelector:@selector(setPreferredFramesPerSecond:)])
                 mDisplayLink.preferredFramesPerSecond = (int)setFps; // 0 uses native/system default
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 150000
         }
@@ -333,17 +340,24 @@ static CFIndex sDirtyFrameCount = 0;
     if (mDisplayLink) {
         void (^applyBlock)(void) = ^{
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 150000
-            if (@available(iOS 15.0, *)) {
-                CAFrameRateRange range;
-                range.minimum = (mMinFps > 0) ? mMinFps : 0.0;
-                range.maximum = (mMaxFps > 0) ? mMaxFps : 0.0;
-                range.preferred = (mPreferredFps > 0) ? mPreferredFps : 0.0;
-                mDisplayLink.preferredFrameRateRange = range;
+            if (@available(iOS 15, *)) {
+                if ([mDisplayLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+                    CAFrameRateRange range;
+                    range.minimum = (mMinFps > 0) ? mMinFps : 0.0;
+                    range.maximum = (mMaxFps > 0) ? mMaxFps : 0.0;
+                    range.preferred = (mPreferredFps > 0) ? mPreferredFps : 0.0;
+                    mDisplayLink.preferredFrameRateRange = range;
+                } else {
+                    NSInteger setFps = (mMaxFps > 0) ? mMaxFps : mPreferredFps;
+                    if ([mDisplayLink respondsToSelector:@selector(setPreferredFramesPerSecond:)])
+                        mDisplayLink.preferredFramesPerSecond = (int)setFps; // 0 means system default
+                }
             } else {
 #endif
                 // iOS 14 path: only preferredFramesPerSecond is available, use max/preferred
                 NSInteger setFps = (mMaxFps > 0) ? mMaxFps : mPreferredFps;
-                mDisplayLink.preferredFramesPerSecond = (int)setFps; // 0 means system default
+                if ([mDisplayLink respondsToSelector:@selector(setPreferredFramesPerSecond:)])
+                    mDisplayLink.preferredFramesPerSecond = (int)setFps; // 0 means system default
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 150000
             }
 #endif

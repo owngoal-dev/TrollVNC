@@ -1,4 +1,4 @@
-export PACKAGE_VERSION := 2.6
+export PACKAGE_VERSION := 3.2-272
 export THEOS_PACKAGE_SCHEME
 
 ifeq ($(THEOS_DEVICE_SIMULATOR),1)
@@ -65,7 +65,7 @@ else
 trollvncserver_LIBRARIES += crypto
 trollvncserver_LIBRARIES += lzo2
 trollvncserver_LIBRARIES += turbojpeg
-trollvncserver_LIBRARIES += png16
+trollvncserver_LIBRARIES += png18
 trollvncserver_LIBRARIES += sasl2
 trollvncserver_LIBRARIES += ssl
 trollvncserver_LIBRARIES += vncserver
@@ -117,6 +117,7 @@ endif
 include $(THEOS_MAKE_PATH)/tool.mk
 
 SUBPROJECTS += prefs/TrollVNCPrefs
+SUBPROJECTS += prefs/CCTrollVNC
 
 ifeq ($(THEBOOTSTRAP),1)
 SUBPROJECTS += app/TrollVNC

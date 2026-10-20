@@ -15,10 +15,17 @@ TrollVNCPrefs_FILES += TVNCListItemsController.m
 TrollVNCPrefs_FILES += TVNCRootListController.m
 TrollVNCPrefs_FILES += TVNCSliderCell.m
 TrollVNCPrefs_FILES += StripedTextTableViewController.m
+TrollVNCPrefs_FILES += ZTSelfSignedCertificate.m
 
 TrollVNCPrefs_CFLAGS += -fobjc-arc
 TrollVNCPrefs_CFLAGS += -DPACKAGE_VERSION=\"$(PACKAGE_VERSION)\"
 TrollVNCPrefs_CFLAGS += -DTHEOS_PACKAGE_SCHEME=\"$(THEOS_PACKAGE_SCHEME)\"
+
+ifeq ($(THEOS_DEVICE_SIMULATOR),1)
+TrollVNCPrefs_CODESIGN_FLAGS += -f -s -
+else
+TrollVNCPrefs_CODESIGN_FLAGS += -S
+endif
 
 TrollVNCPrefs_FRAMEWORKS += UIKit
 TrollVNCPrefs_PRIVATE_FRAMEWORKS += Preferences

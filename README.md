@@ -10,14 +10,14 @@ TrollVNC is a VNC server for iOS devices, allowing remote access and control of 
 
 ## Features
 
-- Low-latency capture with scaling, frame rate control, and back-pressure.
-- Optional dirty-region updates for bandwidth savings.
+- Screen capture with scaling and frame rate control; unchanged display frames are skipped on device.
 - Tunable scroll wheel gestures and natural direction toggle.
 - UTF‑8 Clipboard sync (UltraVNC).
 - Orientation sync and rotation-aware input mapping.
 - Optional server-side cursor overlay.
 - Classic VNC authentication with full-access and view-only passwords.
 - Built-in HTTP/WebSockets for browser access (HTTPS/WSS supported).
+- Enable secure WebSocket connections without pain.
 - Bonjour/mDNS auto-discovery on the local network.
 - [Reverse VNC](#reverse-vnc-reverse-connection)
 - [Pre-seeded configuration](#managed-configuration-preconfigured-deployment)
@@ -37,6 +37,7 @@ trollvncserver -p 5901 -n "My iPhone" [options]
 
 **Basic**:
 
+- `-b host`   Bind host address (IPv4/IPv6 literal, default to all interfaces)
 - `-p port`   TCP port for VNC (default: `5901`)
 - `-c port`   TCP port for client management (listening on localhost only; `0` disables, default: `0`)
 - `-n name`   Desktop name shown to clients (default: `TrollVNC`)
@@ -47,16 +48,6 @@ trollvncserver -p 5901 -n "My iPhone" [options]
 
 - `-s scale`  Output scale factor (`0 < s <= 1`, default: `1.0`; `1` means no scaling)
 - `-F spec`   Frame rate: single `fps`, range `min-max`, or full `min:pref:max`; on iOS 15+ a range is applied, on iOS 14 the max (or preferred) is used
-- `-d sec`    Defer update window in seconds to coalesce changes (`0..0.5`, default: `0.015`)
-- `-Q n`      Max in-flight updates before dropping new frames (`0..8`, default: `2`; `0` disables dropping)
-
-**Dirty detection**:
-
-- `-t size`   Tile size for dirty-detection in pixels (`8..128`, default: `32`)
-- `-P pct`    Fullscreen fallback threshold percent (`0..100`, default: `0`; `0` disables dirty detection entirely)
-- `-R max`    Max dirty rects before collapsing to a bounding box (default: `256`)
-- `-a`        Enable non-blocking swap (may cause tearing).
-
 **Scroll/Input**:
 
 - `-W px`     Wheel step in pixels per tick (`0` disables, default: `48`)
@@ -136,64 +127,19 @@ trollvncserver -p 5901 -n "My iPhone" [options]
   it restores the previous state (disables it only if TrollVNC enabled it).
 - Applies on device builds; no-op on the simulator.
 
-## Performance Tips
+## Performance
 
-Quick guidance on key trade-offs (latency vs. bandwidth vs. CPU/battery):
-
-- `-s scale`: Biggest lever for bandwidth and encoder CPU. Start at `0.66–0.75` for text-heavy UIs; use `0.5` for tight links or slow networks; `1.0` for pixel-perfect.
-- `-F spec`: Cap preferred frame rate to balance smoothness and battery. `30–60` is a sensible range; on 120 Hz devices, `60` often suffices. On iOS 14 the max (or preferred if provided) value is used.
-- `-d sec`: Coalesce updates. Larger values lower CPU/bitrate but add latency. Typical range `0.005–0.030`; interactive UIs prefer `≤ 0.015`.
-- `-Q n`: Throughput vs. latency backpressure. `1–2` recommended. `0` disables dropping and can grow latency when encoders are slow.
-- `-t size`: Dirty-detection tile size. `32` default; `64` cuts hashing/rect overhead on slower devices; `16` (or `8`) captures finer UI details at higher CPU cost.
-- `-P pct`: Fullscreen fallback threshold. Practical `25–40`; higher values stick to rect updates longer. `0` disables dirty detection (always fullscreen).
-- `-R max`: Rect cap before collapsing to a bounding box. `128–512` common; too high increases RFB overhead.
-- `-a`: Non-blocking swap. Can reduce stalls/contension; may introduce tearing. Try if you see occasional stalls; leave off for maximal visual stability. If a non-blocking swap cannot lock clients, TrollVNC falls back to copying only dirty rectangles to the front buffer to minimize tearing and bandwidth.
-
-**Notes:**
-
-- Scaling happens before dirty detection; tile size applies to the scaled frame. Effective tile size in source pixels ≈ t / scale.
-- With `-Q 0`, frames are never dropped. If the client or network is slow, input-to-display latency can grow.
-- On older devices, prefer lowering `-s` and increasing `-t` to reduce CPU and memory bandwidth.
-
-### Preset Examples
-
-By default, dirty detection is **disabled** because it usually has a high CPU cost. You can enable it with `-P` to set a fullscreen fallback threshold.
-
-Low-latency interactive (LAN):
+Output scale (`-s`) and capture frame rate (`-F`) are the supported performance controls. Scaling to `0.5` reduces output pixels to approximately one quarter; it reduces encoder input and potential network traffic, but capture still renders at native resolution. Frame rate caps reduce capture frequency; they do not guarantee the same client display rate. Encoding, compression and JPEG quality are negotiated by the viewer.
 
 ```sh
-trollvncserver -p 5901 -n "My iPhone" -s 0.75 -d 0.008 -Q 1 -t 32 -P 35 -R 512
+# Reduced output size and a 30 FPS capture cap
+trollvncserver -p 5901 -n "My iPhone" -s 0.5 -F 30
+
+# Native output size and a 60 FPS capture cap
+trollvncserver -p 5901 -n "My iPhone" -s 1.0 -F 60
 ```
 
-Battery/bandwidth saver (cellular/WAN):
-
-```sh
-trollvncserver -p 5901 -n "My iPhone" -s 0.5 -d 0.025 -Q 2 -t 64 -P 50 -R 128
-```
-
-High quality on fast LAN:
-
-```sh
-trollvncserver -p 5901 -n "My iPhone" -s 1.0 -d 0.012 -Q 2 -t 32 -P 30 -R 512
-```
-
-Choppy network (high RTT/loss):
-
-```sh
-trollvncserver -p 5901 -n "My iPhone" -s 0.66 -d 0.035 -Q 1 -t 64 -P 60 -R 128
-```
-
-Older devices (CPU-limited):
-
-```sh
-trollvncserver -p 5901 -n "My iPhone" -s 0.5 -d 0.02 -Q 1 -t 64 -P 40 -R 256
-```
-
-Optional: add `-a` to any profile if you observe occasional stalls due to encoder contention; remove it if tearing is noticeable:
-
-```sh
-trollvncserver ... -a
-```
+See the [performance audit](PERFORMANCE.md) for pipeline analysis, removed tuning controls, and device measurements.
 
 ### Frame Rate Control
 
@@ -474,6 +420,7 @@ TrollVNC can be preconfigured via a bundled `Managed.plist` for supervised or fl
 
 - Strings:
   - `DesktopName`: Desktop name shown to clients
+  - `BindHost`: IPv4/IPv6 address literal to bind
   - `ModifierMap`: `std` | `altcmd`
   - `FrameRateSpec`: e.g., `"60"`, `"30-60"`, or `"30:60:120"`
   - `WheelTuning`: advanced wheel tuning string, e.g., `"amp=0.25,cap=1.0,max=256,clamp=3.0"`
@@ -492,17 +439,15 @@ TrollVNC can be preconfigured via a bundled `Managed.plist` for supervised or fl
   - `Port` (1024..65535; `0`/<1024 is treated as invalid and falls back to 5901)
   - `KeepAliveSec` (0 or 15..300; values 0..15 are treated as 0)
   - `Scale` (0.1..1.0)
-  - `DeferWindowSec` (0..0.5)
-  - `MaxInflight` (0..8)
-  - `TileSize` (8..128)
-  - `FullscreenThresholdPercent` (0..100)
-  - `MaxRects` (1..4096)
   - `WheelStepPx` (0 disables wheel; else 5..1000)
   - `HttpPort` (0 disables; else 1024..65535)
   - `ReverseRepeaterID` (numeric ID for UltraVNC Repeater Mode II)
 
 - Booleans:
-  - `Enabled`, `ClipboardEnabled`, `ViewOnly`, `OrientationSync`, `NaturalScroll`, `ServerCursor`, `AsyncSwap`, `KeyLogging`, `AutoAssistEnabled`, `BonjourEnabled`, `FileTransferEnabled`, `SingleNotifEnabled`, `ClientNotifsEnabled`
+  - `Enabled`, `ClipboardEnabled`, `ViewOnly`, `OrientationSync`, `OrientationPadFix`, `NaturalScroll`, `ServerCursor`, `KeyLogging`, `AutoAssistEnabled`, `BonjourEnabled`, `FileTransferEnabled`, `SingleNotifEnabled`, `ClientNotifsEnabled`
+
+- `LaunchAtLogin`: `true` | `false` | custom app ID (e.g., `com.zqbb.Dopamine-roothide`)
+  - Whether to start TrollVNC at login; if set to a custom app ID, it launches that app instead.
 
 **Notes**:
 
@@ -551,16 +496,6 @@ TrollVNC can be preconfigured via a bundled `Managed.plist` for supervised or fl
   <real>0.75</real>
   <key>FrameRateSpec</key>
   <string>30:60:120</string>
-  <key>DeferWindowSec</key>
-  <real>0.012</real>
-  <key>MaxInflight</key>
-  <integer>2</integer>
-  <key>TileSize</key>
-  <integer>32</integer>
-  <key>FullscreenThresholdPercent</key>
-  <integer>35</integer>
-  <key>MaxRects</key>
-  <integer>512</integer>
   <key>HttpPort</key>
   <integer>5801</integer>
   <key>HttpDir</key>
@@ -625,13 +560,14 @@ In the workflow-managed build, the following keys are fixed to safe defaults:
 - `ClientNotifsEnabled=true`
 - `KeepAliveSec=15`
 - `OrientationSync=true`
+- `OrientationPadFix=false`
 - `NaturalScroll=false`
 - `AutoAssistEnabled=false`
 - `ServerCursor=false`
 - `BonjourEnabled=false`
 - `KeyLogging=false`
 
-For advanced tuning (HTTP/TLS, wheel tuning, dirty detection, etc.), commit your own `prefs/TrollVNCPrefs/Resources/Managed.plist` to the repo and leave `is_managed` unchecked, or extend the workflow locally.
+For advanced tuning (HTTP/TLS, wheel tuning, etc.), commit your own `prefs/TrollVNCPrefs/Resources/Managed.plist` to the repo and leave `is_managed` unchecked, or extend the workflow locally.
 
 ### Artifacts and Releases
 

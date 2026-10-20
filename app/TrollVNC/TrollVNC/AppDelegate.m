@@ -33,7 +33,7 @@
 #ifdef THEBOOTSTRAP
     // Initialize Auto Updater
     GHUpdateStrategy *updateStrategy = [[GHUpdateStrategy alloc] init];
-    [updateStrategy setRepoFullName:@"OwnGoalStudio/TrollVNC"];
+    [updateStrategy setRepoFullName:@"owngoal-dev/TrollVNC"];
 
     GitHubReleaseUpdater *updater = [GitHubReleaseUpdater shared];
 #if TARGET_IPHONE_SIMULATOR
