@@ -3639,9 +3639,11 @@ static void setupRfbScreen(int argc, const char *argv[]) {
     struct in6_addr v6Addr;
     memset(&v6Addr, 0, sizeof(v6Addr));
 
+    // An address of one family must not leave the other family's listener on its wildcard address.
     TVBindHostKind hostKind = tvClassifyBindHost(gBindHost, &v4Addr, &v6Addr);
     if (hostKind == kTVBindHostKindIPv4) {
         gScreen->listenInterface = v4Addr;
+        gScreen->ipv6port = 0;
     } else if (hostKind == kTVBindHostKindIPv6) {
         char ifaceBuf[INET6_ADDRSTRLEN];
         const char *iface = inet_ntop(AF_INET6, &v6Addr, ifaceBuf, sizeof(ifaceBuf));
@@ -3650,6 +3652,7 @@ static void setupRfbScreen(int argc, const char *argv[]) {
             exit(EXIT_FAILURE);
         }
         gScreen->listen6Interface = strdup(iface);
+        gScreen->port = 0;
     } else if (hostKind == kTVBindHostKindInvalid && gBindHost) {
         TVPrintError("Invalid host address: %s", [gBindHost UTF8String]);
         exit(EXIT_FAILURE);
