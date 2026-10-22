@@ -70,7 +70,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
 
     strategy:
       matrix:
@@ -181,8 +181,8 @@ jobs:
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/release'
     needs: build
-    runs-on: macos-14
-
+    runs-on: macos-15
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
