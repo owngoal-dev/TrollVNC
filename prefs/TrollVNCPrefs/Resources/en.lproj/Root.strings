@@ -1,10 +1,12 @@
+"-1 (leftmost) follows the quality negotiated by the viewer; 0–9 forces that Tight/JPEG quality level on the server, overriding the value from the viewer's SetEncodings (9 = best, 0 = smallest). Lower values are lossy and may show JPEG artefacts. Clients using ZRLE or Raw encoding are unaffected." = "-1 (leftmost) follows the quality negotiated by the viewer; 0–9 forces that Tight/JPEG quality level on the server, overriding the value from the viewer's SetEncodings (9 = best, 0 = smallest). Lower values are lossy and may show JPEG artefacts. Clients using ZRLE or Raw encoding are unaffected.";
+
 "/absolute/path" = "/absolute/path";
 
 "/path/to/cert.pem" = "/path/to/cert.pem";
 
 "/path/to/key.pem" = "/path/to/key.pem";
 
-"0.1–1.0. Lower scale reduces bandwidth/CPU; 1.0 is pixel-perfect. Balance quality, latency and battery." = "0.1–1.0. Lower scale reduces bandwidth/CPU; 1.0 is pixel-perfect. Balance quality, latency and battery.";
+"0.1–1.0. Controls output resolution only: lower scale reduces bandwidth and CPU; 1.0 is pixel-perfect. Image quality is controlled separately by the Image Quality option below." = "0.1–1.0. Controls output resolution only: lower scale reduces bandwidth and CPU; 1.0 is pixel-perfect. Image quality is controlled separately by the Image Quality option below.";
 
 "180°" = "180°";
 
@@ -36,8 +38,6 @@
 "Authentication" = "Authentication";
 
 "Automatically enables iOS AssistiveTouch while clients are connected to improve input support." = "Automatically enables iOS AssistiveTouch while clients are connected to improve input support.";
-
-"Balance quality, latency and battery." = "Balance quality, latency and battery.";
 
 "Bind Address" = "Bind Address";
 
@@ -95,6 +95,8 @@
 
 
 "Ignore all input from clients. Overrides per-client view-only password if set." = "Ignore all input from clients. Overrides per-client view-only password if set.";
+
+"Image Quality" = "Image Quality";
 
 "Keep-Alive (sec)" = "Keep-Alive (sec)";
 

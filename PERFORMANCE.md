@@ -31,7 +31,7 @@ This cleanup retains the existing blocking synchronization design. Its separate 
 
 Debug builds now emit `update stats` per client approximately every five seconds while updates complete. `wall` includes encoding and synchronous writes; `cpu` measures CPU time on that output thread; both are averages per update call. `rfb` is the library's accounted RFB bytes per second, excluding TCP/TLS/WebSocket overhead. `encoding` is the negotiated encoding number. These counters are absent from Release builds.
 
-Compare these with capture's `elapsed` and verbose (`-V`) `frame summary` timings. A large `publish/wait` means publication is waiting on clients. Update wall time close to thread CPU time points to CPU work; a large gap points to waiting or descheduling, and must not automatically be labelled network time. Use a fixed workload, viewer encoding/quality and resolution, then compare USB forwarding and Wi-Fi, and native size versus `-s 0.5`. A non-incremental full-frame probe measures update service capacity, not animation or end-to-end input latency.
+Compare these with capture's `elapsed` and verbose (`-V`) `frame summary` timings. A large `publish/wait` means publication is waiting on clients. Update wall time close to thread CPU time points to CPU work; a large gap points to waiting or descheduling, and must not automatically be labelled network time. Use a fixed workload, client-side encoding/quality, server-side `-q`/`Scale` and resolution, then compare USB forwarding and Wi-Fi, and native size versus `-s 0.5`. A non-incremental full-frame probe measures update service capacity, not animation or end-to-end input latency.
 
 ## Device observations (2026-10-14)
 

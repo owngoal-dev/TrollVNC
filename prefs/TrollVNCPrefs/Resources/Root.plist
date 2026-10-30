@@ -266,7 +266,7 @@
 			<key>label</key>
 			<string>Output Scale</string>
 			<key>footerText</key>
-			<string>0.1–1.0. Lower scale reduces bandwidth/CPU; 1.0 is pixel-perfect. Balance quality, latency and battery.</string>
+			<string>0.1–1.0. Controls output resolution only: lower scale reduces bandwidth and CPU; 1.0 is pixel-perfect. Image quality is controlled separately by the Image Quality option below.</string>
 		</dict>
 		<dict>
 			<key>cellClass</key>
@@ -285,6 +285,45 @@
 			<true/>
 			<key>format</key>
 			<string>%.2f</string>
+		</dict>
+
+		<!-- Image Quality -->
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Image Quality</string>
+			<key>footerText</key>
+			<string>-1 (leftmost) follows the quality negotiated by the viewer; 0–9 forces that Tight/JPEG quality level on the server, overriding the value from the viewer's SetEncodings (9 = best, 0 = smallest). Lower values are lossy and may show JPEG artefacts. Clients using ZRLE or Raw encoding are unaffected.</string>
+		</dict>
+		<dict>
+			<key>cellClass</key>
+			<string>TVNCSliderCell</string>
+			<key>defaults</key>
+			<string>com.82flex.trollvnc</string>
+			<key>key</key>
+			<string>Quality</string>
+			<key>default</key>
+			<real>-1</real>
+			<key>min</key>
+			<real>-1</real>
+			<key>max</key>
+			<real>9</real>
+			<key>isSegmented</key>
+			<true/>
+			<key>segmentCount</key>
+			<integer>10</integer>
+			<key>showValue</key>
+			<true/>
+			<key>format</key>
+			<string>%.0f</string>
+			<!-- Rendered verbatim by TVNCSliderCell (it does not go through
+			     NSLocalizedString), so "Auto" is intentionally untranslated:
+			     do not add it to Root.strings, it would be a dead key. -->
+			<key>placeholderWhenUnset</key>
+			<string>Auto</string>
+			<key>valuePlaceholderMatch</key>
+			<integer>-1</integer>
 		</dict>
 
 		<!-- Frame Rate -->

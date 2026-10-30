@@ -23,6 +23,9 @@
     UILabel *_valueLabel;
     NSString *_formatString;
     CGFloat _valueLabelWidth;
+    NSString *_placeholderText;   // optional text shown instead of the numeric value
+    BOOL _showsPlaceholder;       // YES while _placeholderText is displayed instead of the value
+    NSNumber *_placeholderMatch;  // optional slider value that makes _placeholderText apply
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style
@@ -103,7 +106,44 @@
     ]];
 }
 
+/**
+ Decides whether the value label should show the placeholder text instead of the
+ numeric value, and leaves the result in _showsPlaceholder.
+
+ Two independent mechanisms are supported:
+
+ 1. `valuePlaceholderMatch` (NSNumber): the placeholder applies whenever the
+    slider currently sits on that exact value. This is deterministic and does
+    not depend on whether the preference key exists, so it survives
+    PSListController falling back to the specifier `default`.
+ 2. `placeholderWhenUnset` (NSString) only: the placeholder applies while the
+    preference is still unset (performGetter returned a non-NSNumber).
+
+ The placeholder text itself always comes from `placeholderWhenUnset`.
+
+ @param hasValue YES when performGetter returned an NSNumber (i.e. the
+                 preference is set), NO when the value came from `default`.
+ */
+- (void)_refreshPlaceholderStateWithValueIsNumber:(BOOL)hasValue {
+    if (_placeholderText.length == 0) {
+        // No text configured: never hide the numeric value.
+        _showsPlaceholder = NO;
+        return;
+    }
+
+    if (_placeholderMatch) {
+        _showsPlaceholder = (_slider.value == _placeholderMatch.doubleValue);
+        return;
+    }
+
+    _showsPlaceholder = !hasValue;
+}
+
 - (void)_syncWithSpecifier:(PSSpecifier *)specifier {
+    _placeholderText = nil;
+    _placeholderMatch = nil;
+    _showsPlaceholder = NO;
+
     if (!specifier) {
         return;
     }
@@ -112,6 +152,21 @@
 
     if (!_formatString || ![_formatString isKindOfClass:[NSString class]]) {
         _formatString = @"%.0f";
+    }
+
+    // Optional: text shown in place of the numeric value (see
+    // _refreshPlaceholderStateWithValueIsNumber: for when it applies).
+    NSString *placeholderText = [specifier propertyForKey:@"placeholderWhenUnset"];
+
+    if ([placeholderText isKindOfClass:[NSString class]] && placeholderText.length > 0) {
+        _placeholderText = placeholderText;
+    }
+
+    // Optional: the slider value that triggers the placeholder text.
+    NSNumber *placeholderMatch = [specifier propertyForKey:@"valuePlaceholderMatch"];
+
+    if ([placeholderMatch isKindOfClass:[NSNumber class]]) {
+        _placeholderMatch = placeholderMatch;
     }
 
     NSNumber *minValue = [specifier propertyForKey:@"min"];
@@ -129,8 +184,9 @@
     _slider.continuous = isContinuous ? [isContinuous boolValue] : YES;
 
     id value = [specifier performGetter];
+    BOOL hasValue = [value isKindOfClass:[NSNumber class]];
 
-    if ([value isKindOfClass:[NSNumber class]]) {
+    if (hasValue) {
         _slider.value = [value floatValue];
     } else {
         NSNumber *defaultValue = [specifier propertyForKey:@"default"];
@@ -139,6 +195,9 @@
             _slider.value = [defaultValue floatValue];
         }
     }
+
+    // Must run after _slider.value has been established.
+    [self _refreshPlaceholderStateWithValueIsNumber:hasValue];
 
     [self updateValueLabel];
 }
@@ -150,7 +209,8 @@
 
 - (void)updateValueLabel {
     if (_valueLabel) {
-        _valueLabel.text = [NSString stringWithFormat:_formatString, _slider.value];
+        _valueLabel.text = _showsPlaceholder ? _placeholderText
+                                             : [NSString stringWithFormat:_formatString, _slider.value];
     }
 }
 
@@ -172,6 +232,10 @@
             slider.value = snappedValue;
         }
     }
+
+    // The slider now definitely holds a user-chosen value: refresh the placeholder
+    // state so that dragging onto the match value shows the placeholder again.
+    [self _refreshPlaceholderStateWithValueIsNumber:YES];
 
     // Update value label
     [self updateValueLabel];

@@ -2,6 +2,17 @@
 
 All notable changes to TrollVNC are documented here.
 
+## [Unreleased]
+
+### Added
+- **Image Quality (0–9)**: Image quality is now an independent option instead of being tied to the output scale. A new `Quality` preference (`-q auto|0..9` on the CLI) forces the server-side Tight/JPEG quality level and overrides whatever the viewer negotiates in `SetEncodings`. The legacy behaviour is preserved by the default `auto` (`-1`): when the preference is unset or `-q auto` is used, the viewer’s negotiated quality is kept verbatim. Encoders without a quality parameter (ZRLE, Raw, Hextile) are unaffected.
+- **Managed Configuration**: `Quality` is now a supported numeric key (0..9, or `-1` to follow the viewer).
+- The *Image Quality* slider has an explicit **Auto** slot as its leftmost step (`-1`), meaning the server follows the quality negotiated by the viewer; `0..9` force that level.
+
+### Changed
+- `-s` / `Scale` now unambiguously controls output resolution only; changing the scale no longer implies a change in encoded image quality. Use `-q` / `Quality` for quality.
+- The preferences pane gained an *Image Quality* slider with 11 stops (`-1` … `9`), and the *Output Scale* footer text no longer conflates scale with quality.
+
 ## [3.2] – 2026-04-19
 
 ### Added

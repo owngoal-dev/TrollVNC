@@ -47,6 +47,7 @@ trollvncserver -p 5901 -n "My iPhone" [options]
 **Display/Performance**:
 
 - `-s scale`  Output scale factor (`0 < s <= 1`, default: `1.0`; `1` means no scaling)
+- `-q level`  Image quality (`0..9` or `auto`, default: `auto`); `auto` follows the quality negotiated by the viewer
 - `-F spec`   Frame rate: single `fps`, range `min-max`, or full `min:pref:max`; on iOS 15+ a range is applied, on iOS 14 the max (or preferred) is used
 **Scroll/Input**:
 
@@ -129,14 +130,14 @@ trollvncserver -p 5901 -n "My iPhone" [options]
 
 ## Performance
 
-Output scale (`-s`) and capture frame rate (`-F`) are the supported performance controls. Scaling to `0.5` reduces output pixels to approximately one quarter; it reduces encoder input and potential network traffic, but capture still renders at native resolution. Frame rate caps reduce capture frequency; they do not guarantee the same client display rate. Encoding, compression and JPEG quality are negotiated by the viewer.
+Output scale (`-s`), image quality (`-q`) and capture frame rate (`-F`) are the supported performance controls. Output scale only controls the output resolution: scaling to `0.5` reduces output pixels to approximately one quarter; it reduces encoder input and potential network traffic, but capture still renders at native resolution. Image quality is an independent knob: `-q 0..9` forces the Tight/JPEG quality level used by the server, overriding whatever the viewer negotiates in `SetEncodings`, while `-q auto` (the default) keeps the historical behaviour of letting the viewer decide. Lower quality values are lossy and may show JPEG artefacts at low levels. The quality override only applies to encoders that carry a JPEG quality parameter (Tight, TightPNG, ZYWRLE); clients using ZRLE or Raw encoding are unaffected. Frame rate caps reduce capture frequency; they do not guarantee the same client display rate.
 
 ```sh
 # Reduced output size and a 30 FPS capture cap
 trollvncserver -p 5901 -n "My iPhone" -s 0.5 -F 30
 
-# Native output size and a 60 FPS capture cap
-trollvncserver -p 5901 -n "My iPhone" -s 1.0 -F 60
+# Native output size, forced quality 9 and a 60 FPS capture cap
+trollvncserver -p 5901 -n "My iPhone" -s 1.0 -q 9 -F 60
 ```
 
 See the [performance audit](PERFORMANCE.md) for pipeline analysis, removed tuning controls, and device measurements.
@@ -439,6 +440,7 @@ TrollVNC can be preconfigured via a bundled `Managed.plist` for supervised or fl
   - `Port` (1024..65535; `0`/<1024 is treated as invalid and falls back to 5901)
   - `KeepAliveSec` (0 or 15..300; values 0..15 are treated as 0)
   - `Scale` (0.1..1.0)
+  - `Quality` (0..9 forced Tight/JPEG quality; `-1` follows the viewer negotiation)
   - `WheelStepPx` (0 disables wheel; else 5..1000)
   - `HttpPort` (0 disables; else 1024..65535)
   - `ReverseRepeaterID` (numeric ID for UltraVNC Repeater Mode II)

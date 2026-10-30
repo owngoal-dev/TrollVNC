@@ -1,10 +1,12 @@
+"-1 (leftmost) follows the quality negotiated by the viewer; 0–9 forces that Tight/JPEG quality level on the server, overriding the value from the viewer's SetEncodings (9 = best, 0 = smallest). Lower values are lossy and may show JPEG artefacts. Clients using ZRLE or Raw encoding are unaffected." = "最左格 -1（自动）跟随客户端协商的画质；0–9 由服务端强制使用该 Tight/JPEG 画质等级，覆盖客户端 SetEncodings 给出的值（9 最高，0 最省带宽）。数值越低越有损，可能出现 JPEG 压缩痕迹。使用 ZRLE 或 Raw 编码的客户端不受影响。";
+
 "/absolute/path" = "/absolute/path";
 
 "/path/to/cert.pem" = "/path/to/cert.pem";
 
 "/path/to/key.pem" = "/path/to/key.pem";
 
-"0.1–1.0. Lower scale reduces bandwidth/CPU; 1.0 is pixel-perfect. Balance quality, latency and battery." = "0.1–1.0。缩小可降低带宽/CPU 占用；1.0 保持像素级清晰。请在画质、延迟与电量之间取得平衡。";
+"0.1–1.0. Controls output resolution only: lower scale reduces bandwidth and CPU; 1.0 is pixel-perfect. Image quality is controlled separately by the Image Quality option below." = "0.1–1.0。仅控制输出分辨率：数值越小，带宽与 CPU 占用越低；1.0 保持像素级清晰。画质由下方的「画质」选项单独控制。";
 
 "180°" = "180°";
 
@@ -36,8 +38,6 @@
 "Authentication" = "认证";
 
 "Automatically enables iOS AssistiveTouch while clients are connected to improve input support." = "连接期间自动启用 iOS AssistiveTouch，以改善输入支持。";
-
-"Balance quality, latency and battery." = "平衡画质、延迟与电量消耗。";
 
 "Bind Address" = "绑定地址";
 
@@ -95,6 +95,8 @@
 
 
 "Ignore all input from clients. Overrides per-client view-only password if set." = "忽略来自客户端的所有输入。如设置了仅查看密码，则此开关全局覆盖它。";
+
+"Image Quality" = "画质";
 
 "Keep-Alive (sec)" = "保活（秒）";
 

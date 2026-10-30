@@ -76,6 +76,13 @@ static BOOL gClipboardEnabled = YES;
 static BOOL gIsDaemonMode = NO; // set when launched with -daemon
 
 static double gScale = 1.0; // 0 < scale <= 1.0, 1.0 = no scaling
+
+// Server-side image quality override for the Tight/JPEG family of encoders.
+// -1 = follow the quality negotiated by the client via SetEncodings (default,
+//      keeps the historical behaviour untouched);
+//  0..9 = force this Tight/JPEG quality level for every client.
+static int gQualityLevel = -1;
+
 // Preferred frame rate range (0 = unspecified)
 static int gFpsMin = 0;
 static int gFpsPref = 0;
@@ -303,6 +310,7 @@ static void printUsageAndExit(const char *prog) {
 
     fprintf(stderr, "Display/Perf:\n");
     fprintf(stderr, "  -s scale   Output scale 0<s<=1 (default: %.2f)\n", gScale);
+    fprintf(stderr, "  -q level   Image quality 0..9 or auto to follow client (default: auto)\n");
     fprintf(stderr, "  -F spec    Frame rate: fps | min-max | min:pref:max\n\n");
 
     fprintf(stderr, "Scroll/Input:\n");
@@ -519,6 +527,20 @@ static void parseDaemonOptions(void) {
         if (v > 1.0)
             v = 1.0;
         gScale = v;
+    }
+
+    NSNumber *qualityN = [prefs objectForKey:@"Quality"];
+    if ([qualityN isKindOfClass:[NSNumber class]]) {
+        int v = qualityN.intValue;
+        // -1 = follow the client negotiation (default); 0..9 = forced quality
+        if (v < -1) {
+            TVLog(@"-daemon: invalid Quality=%d; treated as -1 (follow client)", v);
+            v = -1;
+        } else if (v > 9) {
+            TVLog(@"-daemon: invalid Quality=%d; clamped to 9", v);
+            v = 9;
+        }
+        gQualityLevel = v;
     }
 
     NSNumber *wheelPxN = [prefs objectForKey:@"WheelStepPx"];
@@ -818,7 +840,7 @@ static void parseDaemonOptions(void) {
     // Core feature flags
     [cfg appendFormat:@"viewOnly=%@ clip=%@ keepAlive=%.0fs ", gViewOnly ? @"YES" : @"NO",
                       gClipboardEnabled ? @"YES" : @"NO", gKeepAliveSec];
-    [cfg appendFormat:@"scale=%.2f fps=%d:%d:%d ", gScale, gFpsMin, gFpsPref, gFpsMax];
+    [cfg appendFormat:@"scale=%.2f quality=%d fps=%d:%d:%d ", gScale, gQualityLevel, gFpsMin, gFpsPref, gFpsMax];
     [cfg appendFormat:@"cursor=%@ orient=%@ orientFix=%d keylog=%@ ",
                       gCursorEnabled ? @"YES" : @"NO", gOrientationSyncEnabled ? @"YES" : @"NO",
                       gOrientationFixQuad, gKeyEventLogging ? @"YES" : @"NO"];
@@ -1028,7 +1050,7 @@ static void parseCLI(int argc, const char *argv[]) {
 #pragma clang diagnostic pop
 
     int opt;
-    const char *optstr = "p:b:n:vA:c:C:s:F:W:w:NM:KU:O:o:I:i:H:D:e:k:B:T:Vh";
+    const char *optstr = "p:b:n:vA:c:C:s:q:F:W:w:NM:KU:O:o:I:i:H:D:e:k:B:T:Vh";
     optind = 1;
     while ((opt = getopt(__argc2, __argv2.data(), optstr)) != -1) {
         switch (opt) {
@@ -1103,6 +1125,28 @@ static void parseCLI(int argc, const char *argv[]) {
             }
             gScale = sc;
             TVLog(@"CLI: Output scale factor set to %.3f", gScale);
+            break;
+        }
+        case 'q': {
+            // Accept: "auto" / "-1" (follow client) or an explicit level 0..9
+            const char *val = optarg ? optarg : "";
+            if (strcasecmp(val, "auto") == 0) {
+                gQualityLevel = -1;
+                TVLog(@"CLI: Image quality set to auto (follow client)");
+                break;
+            }
+            char *endptr = NULL;
+            long level = strtol(val, &endptr, 10);
+            if (val[0] == '\0' || !endptr || endptr == val || *endptr != '\0' || level < -1 || level > 9) {
+                TVPrintError("Invalid image quality: %s (expected auto, -1, or 0..9)", val);
+                exit(EXIT_FAILURE);
+            }
+            gQualityLevel = (int)level;
+            if (gQualityLevel < 0) {
+                TVLog(@"CLI: Image quality set to auto (follow client)");
+            } else {
+                TVLog(@"CLI: Image quality set to %d (forced)", gQualityLevel);
+            }
             break;
         }
         case 'F': {
@@ -3092,6 +3136,46 @@ static BOOL gIsClipboardStarted = NO;
 static BOOL gRestoreAssist = NO;
 #endif
 
+/*
+ Applies the optional server-side image quality override to a single client.
+
+ When gQualityLevel < 0 the client keeps whatever quality it negotiated through
+ SetEncodings (historical behaviour). When gQualityLevel is 0..9 the value is
+ clamped and written into cl->tightQualityLevel, which is honoured by the
+ Tight/JPEG family of encoders (Tight, TightPNG, ZYWRLE). Encodings that carry
+ no quality parameter (ZRLE, Raw, Hextile, ...) are unaffected.
+
+ Other tunables (tightCompressLevel, zlibCompressLevel, colour depth, server
+ format) are deliberately left untouched.
+ */
+static void tvApplyQualityOverride(rfbClientPtr cl) {
+    if (!cl || gQualityLevel < 0)
+        return;
+
+#if defined(LIBVNCSERVER_HAVE_LIBZ) || defined(LIBVNCSERVER_HAVE_LIBPNG)
+    int level = gQualityLevel;
+    if (level > 9)
+        level = 9;
+    if (cl->tightQualityLevel != level) {
+        cl->tightQualityLevel = level;
+        TVLogVerbose(@"Quality: forced tightQualityLevel=%d for client %s", level, cl->host ? cl->host : "?");
+    }
+#else
+    (void)cl;
+#endif
+}
+
+/*
+ Re-applies the quality override on every framebuffer update request, because a
+ client overwrites cl->tightQualityLevel with its own SetEncodings message right
+ after connecting. This hook is invoked from rfbProcessEvents on the main
+ thread and only reads an int, so no locking is required.
+ */
+static void tvClientFramebufferUpdateRequestHook(rfbClientPtr cl, rfbFramebufferUpdateRequestMsg *furMsg) {
+    (void)furMsg;
+    tvApplyQualityOverride(cl);
+}
+
 static void clientGoneHook(rfbClientPtr cl) {
     // Free per-client state
     TVClientState *st = tvGetClientState(cl);
@@ -3168,6 +3252,9 @@ static void clientGoneHook(rfbClientPtr cl) {
 
 static enum rfbNewClientAction newClientHook(rfbClientPtr cl) {
     cl->clientGoneHook = clientGoneHook;
+    // Enforce the optional server-side image quality override early; the hook
+    // installed on gScreen re-applies it after the client's SetEncodings.
+    tvApplyQualityOverride(cl);
     if (!cl->viewOnly && gViewOnly)
         cl->viewOnly = TRUE;
 
@@ -3659,6 +3746,7 @@ static void setupRfbScreen(int argc, const char *argv[]) {
 
     // Event handlers
     gScreen->newClientHook = newClientHook;
+    gScreen->clientFramebufferUpdateRequestHook = tvClientFramebufferUpdateRequestHook;
 #if DEBUG
     gScreen->displayHook = displayHook;
     gScreen->displayFinishedHook = displayFinishedHook;
